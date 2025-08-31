@@ -29,10 +29,43 @@ let moment = require('moment');
 let Swal = require('sweetalert2');
 let { ipcRenderer } = require('electron');
 let dotInterval = setInterval(function () { $(".dot").text('.') }, 3000);
-let Store = require('electron-store');
-const remote = require('electron').remote;
-const app = remote.app;
-let img_path = app.getPath('appData') + '/POS/uploads/';
+
+// Replace electron-store with localStorage-based storage
+class LocalStorage {
+    constructor() {
+        this.prefix = 'pos_';
+    }
+    
+    get(key) {
+        try {
+            const item = localStorage.getItem(this.prefix + key);
+            return item ? JSON.parse(item) : undefined;
+        } catch (e) {
+            console.warn('Error reading from localStorage:', e);
+            return undefined;
+        }
+    }
+    
+    set(key, value) {
+        try {
+            localStorage.setItem(this.prefix + key, JSON.stringify(value));
+        } catch (e) {
+            console.warn('Error writing to localStorage:', e);
+        }
+    }
+    
+    delete(key) {
+        try {
+            localStorage.removeItem(this.prefix + key);
+        } catch (e) {
+            console.warn('Error deleting from localStorage:', e);
+        }
+    }
+}
+
+let storage = new LocalStorage();
+
+let img_path = './database/POS/uploads/';
 let api = 'http://' + host + ':' + port + '/api/';
 let btoa = require('btoa');
 let jsPDF = require('jspdf');
@@ -49,7 +82,6 @@ let auth_error = 'Incorrect username or password';
 let auth_empty = 'Please enter a username and password';
 let holdOrderlocation = $("#randerHoldOrders");
 let customerOrderLocation = $("#randerCustomerOrders");
-let storage = new Store();
 let settings;
 let platform;
 let user = {};
@@ -112,9 +144,14 @@ $.fn.serializeObject = function () {
 auth = storage.get('auth');
 user = storage.get('user');
 
+console.log('Stored auth data:', auth);
+console.log('Stored user data:', user);
 
 if (auth == undefined) {
-    $.get(api + 'users/check/', function (data) { });
+    console.log('No auth data found, checking for admin user...');
+    $.get(api + 'users/check/', function (data) { 
+        console.log('Admin check response:', data);
+    });
     $("#loading").show();
     authenticate();
 
@@ -1197,6 +1234,8 @@ if (auth == undefined) {
             else {
                 method = 'PUT';
             }
+            console.log("method", method);
+            console.log("api", api);
 
             $.ajax({
                 type: method,
@@ -2291,10 +2330,57 @@ $('#reportrange').on('apply.daterangepicker', function (ev, picker) {
 
 function authenticate() {
     $('#loading').append(
-        `<div id="load"><form id="account"><div class="form-group"><input type="text" placeholder="Username" name="username" class="form-control"></div>
-        <div class="form-group"><input type="password" placeholder="Password" name="password" class="form-control"></div>
-        <div class="form-group"><input type="submit" class="btn btn-block btn-default" value="Login"></div></form>`
+        `<div id="load">
+            <form id="account">
+                <div class="form-group">
+                    <input type="text" placeholder="Username" name="username" class="form-control">
+                </div>
+                <div class="form-group">
+                    <input type="password" placeholder="Password" name="password" class="form-control">
+                </div>
+                <div class="form-group">
+                    <input type="submit" class="btn btn-block btn-default" value="Login">
+                </div>
+            </form>
+            <div class="text-center mt-3">
+                <button id="resetAdmin" class="btn btn-sm btn-warning">Reset Admin User</button>
+            </div>
+        </div>`
     );
+    
+    // Add event listener for reset admin button
+    $('#resetAdmin').click(function() {
+        Swal.fire({
+            title: 'Reset Admin User?',
+            text: 'This will reset the admin user to username: admin, password: admin',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Reset Admin'
+        }).then((result) => {
+            if (result.value) {
+                $.ajax({
+                    url: api + 'users/reset-admin',
+                    type: 'POST',
+                    success: function(data) {
+                        Swal.fire(
+                            'Success!',
+                            'Admin user has been reset. You can now login with admin/admin',
+                            'success'
+                        );
+                    },
+                    error: function(xhr, status, error) {
+                        Swal.fire(
+                            'Error!',
+                            'Failed to reset admin user: ' + error,
+                            'error'
+                        );
+                    }
+                });
+            }
+        });
+    });
 }
 
 
@@ -2303,7 +2389,6 @@ $('body').on("submit", "#account", function (e) {
     let formData = $(this).serializeObject();
 
     if (formData.username == "" || formData.password == "") {
-
         Swal.fire(
             'Incomplete form!',
             auth_empty,
@@ -2311,7 +2396,8 @@ $('body').on("submit", "#account", function (e) {
         );
     }
     else {
-
+        console.log('Attempting login with:', formData.username);
+        
         $.ajax({
             url: api + 'users/login',
             type: 'POST',
@@ -2320,21 +2406,30 @@ $('body').on("submit", "#account", function (e) {
             cache: false,
             processData: false,
             success: function (data) {
-                if (data._id) {
+                console.log('Login response:', data);
+                
+                if (data && data._id) {
+                    console.log('Login successful, storing user data');
                     storage.set('auth', { auth: true });
                     storage.set('user', data);
                     ipcRenderer.send('app-reload', '');
                 }
                 else {
+                    console.log('Login failed - no user data returned');
                     Swal.fire(
                         'Oops!',
                         auth_error,
                         'warning'
                     );
                 }
-
-            }, error: function (data) {
-                console.log(data);
+            }, 
+            error: function (xhr, status, error) {
+                console.error('Login error:', {xhr, status, error});
+                Swal.fire(
+                    'Login Error',
+                    'Failed to connect to server. Please check if the server is running.',
+                    'error'
+                );
             }
         });
     }

@@ -1,15 +1,18 @@
 const app = require( "express" )();
 const server = require( "http" ).Server( app );
 const bodyParser = require( "body-parser" );
+const multer = require( "multer" );
 const Datastore = require( "nedb" );
 const async = require( "async" );
-const fileUpload = require('express-fileupload');
-const multer = require("multer");
-const fs = require('fs');
+const fs = require( "fs" );
+const path = require("path");
+const config = require("./config");
 
+// Ensure directories exist
+config.ensureDirectories();
 
 const storage = multer.diskStorage({
-    destination: process.env.APPDATA+'/POS/uploads',
+    destination: config.uploadsPath,
     filename: function(req, file, callback){
         callback(null, Date.now() + '.jpg'); // 
     }
@@ -25,7 +28,7 @@ module.exports = app;
 
  
 let inventoryDB = new Datastore( {
-    filename: process.env.APPDATA+"/POS/server/databases/inventory.db",
+    filename: path.join(config.databasePath, "inventory.db"),
     autoload: true
 } );
 

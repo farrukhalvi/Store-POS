@@ -3,13 +3,20 @@ const server = require( "http" ).Server( app );
 const bodyParser = require( "body-parser" );
 const Datastore = require( "nedb" );
 const btoa = require('btoa');
+const async = require( "async" );
+const path = require("path");
+const config = require("./config");
+
+// Ensure directories exist
+config.ensureDirectories();
+
 app.use( bodyParser.json() );
 
 module.exports = app;
 
  
 let usersDB = new Datastore( {
-    filename: process.env.APPDATA+"/POS/server/databases/users.db",
+    filename: path.join(config.databasePath, "users.db"),
     autoload: true
 } );
 
@@ -59,25 +66,37 @@ app.get( "/logout/:userId", function ( req, res ) {
 
 
 app.post( "/login", function ( req, res ) {  
+    console.log("Login attempt for username:", req.body.username);
+    
     usersDB.findOne( {
         username: req.body.username,
         password: btoa(req.body.password)
-
-}, function ( err, docs ) {
+    }, function ( err, docs ) {
+        if (err) {
+            console.error("Database error during login:", err);
+            res.status(500).send({ error: "Database error" });
+            return;
+        }
+        
         if(docs) {
+            console.log("User found, updating status");
             usersDB.update( {
                 _id: docs._id
             }, {
                 $set: {
                     status: 'Logged In_'+ new Date()
                 }
-            }, {},
-            
-        );
+            }, {}, function(updateErr) {
+                if (updateErr) {
+                    console.error("Error updating user status:", updateErr);
+                }
+            });
+        } else {
+            console.log("No user found with these credentials");
         }
+        
         res.send( docs );
     } );
-    
 } );
 
 
@@ -115,10 +134,16 @@ app.post( "/post" , function ( req, res ) {
           }
 
     if(req.body.id == "") { 
-       User._id = Math.floor(Date.now() / 1000);
+       // Generate a unique ID that won't conflict with admin user (ID 1)
+       User._id = Math.max(2, Math.floor(Date.now() / 1000));
        usersDB.insert( User, function ( err, user ) {
-            if ( err ) res.status( 500 ).send( req );
-            else res.send( user );
+            if ( err ) {
+                console.error("Error creating user:", err);
+                res.status( 500 ).send( err );
+            } else {
+                console.log("User created successfully:", user);
+                res.send( user );
+            }
         });
     }
     else { 
@@ -166,9 +191,56 @@ app.get( "/check", function ( req, res ) {
                 "perm_settings": 1,
                 "status": ""
               }
-            usersDB.insert( User, function ( err, user ) {                            
+            usersDB.insert( User, function ( err, user ) {
+                if (err) {
+                    console.error("Error creating admin user:", err);
+                } else {
+                    console.log("Admin user created successfully");
+                }
             });
+        } else {
+            console.log("Admin user already exists");
         }
+        res.sendStatus(200);
     } );
 } );
- 
+
+// Add endpoint to reset admin user (for troubleshooting)
+app.post("/reset-admin", function(req, res) {
+    console.log("Resetting admin user...");
+    
+    // First, remove existing admin user
+    usersDB.remove({ _id: 1 }, {}, function(err, numRemoved) {
+        if (err) {
+            console.error("Error removing existing admin user:", err);
+            res.status(500).send({ error: "Failed to remove existing admin user" });
+            return;
+        }
+        
+        console.log("Removed existing admin user, creating new one...");
+        
+        // Create new admin user
+        let AdminUser = { 
+            "_id": 1,
+            "username": "admin",
+            "password": btoa("admin"),
+            "fullname": "Administrator",
+            "perm_products": 1,
+            "perm_categories": 1,
+            "perm_transactions": 1,
+            "perm_users": 1,
+            "perm_settings": 1,
+            "status": ""
+        };
+        
+        usersDB.insert(AdminUser, function(err, user) {
+            if (err) {
+                console.error("Error creating new admin user:", err);
+                res.status(500).send({ error: "Failed to create new admin user" });
+            } else {
+                console.log("Admin user reset successfully:", user);
+                res.send({ message: "Admin user reset successfully", user: user });
+            }
+        });
+    });
+});

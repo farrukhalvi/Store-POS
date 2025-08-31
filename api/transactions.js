@@ -1,17 +1,24 @@
-let app = require("express")();
-let server = require("http").Server(app);
-let bodyParser = require("body-parser");
-let Datastore = require("nedb");
-let Inventory = require("./inventory");
+const app = require( "express" )();
+const server = require( "http" ).Server( app );
+const bodyParser = require( "body-parser" );
+const Datastore = require( "nedb" );
+const async = require( "async" );
+const path = require("path");
+const config = require("./config");
+const inventory = require("./inventory");
 
-app.use(bodyParser.json());
+// Ensure directories exist
+config.ensureDirectories();
+
+app.use( bodyParser.json() );
 
 module.exports = app;
+
  
-let transactionsDB = new Datastore({
-  filename: process.env.APPDATA+"/POS/server/databases/transactions.db",
-  autoload: true
-});
+let transactionsDB = new Datastore( {
+    filename: path.join(config.databasePath, "transactions.db"),
+    autoload: true
+} );
 
 
 transactionsDB.ensureIndex({ fieldName: '_id', unique: true });
@@ -105,7 +112,7 @@ app.post("/new", function(req, res) {
      res.sendStatus(200);
 
      if(newTransaction.paid >= newTransaction.total){
-        Inventory.decrementInventory(newTransaction.items);
+        inventory.decrementInventory(newTransaction.items);
      }
      
     }
