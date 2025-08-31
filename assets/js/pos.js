@@ -236,8 +236,10 @@ if (auth == undefined) {
         if (0 == user.perm_settings) { $(".p_five").hide() };
 
         function loadProducts() {
+            console.log('🔄 Loading products from API...');
 
             $.get(api + 'inventory/products', function (data) {
+                console.log('✅ Products loaded:', data.length, 'products');
 
                 data.forEach(item => {
                     item.price = parseFloat(item.price).toFixed(2);
@@ -257,12 +259,12 @@ if (auth == undefined) {
                     }
 
                     let item_info = `<div class="col-lg-2 box ${item.category}"
-                                onclick="$(this).addToCart(${item._id}, ${item.quantity}, ${item.stock})">
+                                onclick="addToCart(${item._id}, ${item.quantity}, ${item.stock})">
                             <div class="widget-panel widget-style-2 ">                    
                             <div id="image"><img src="${item.img == "" ? "./assets/images/default.jpg" : img_path + item.img}" id="product_img" alt=""></div>                    
                                         <div class="text-muted m-t-5 text-center">
                                         <div class="name" id="product_name">${item.name}</div> 
-                                        <span class="sku">${item.sku}</span>
+                                        <span class="sku">${item.sku || item._id}</span>
                                         <span class="stock">STOCK </span><span class="count">${item.stock == 1 ? item.quantity : 'N/A'}</span></div>
                                         <sp class="text-success text-center"><b data-plugin="counterup">${settings.symbol + item.price}</b> </sp>
                             </div>
@@ -313,6 +315,29 @@ if (auth == undefined) {
 
         }
 
+
+        // Global function for onclick calls
+        window.addToCart = function (id, count, stock) {
+            if (stock == 1) {
+                if (count > 0) {
+                    $.get(api + 'inventory/product/' + id, function (data) {
+                        $().addProductToCart(data);
+                    });
+                }
+                else {
+                    Swal.fire(
+                        'Out of stock!',
+                        'This item is currently unavailable',
+                        'info'
+                    );
+                }
+            }
+            else {
+                $.get(api + 'inventory/product/' + id, function (data) {
+                    $().addProductToCart(data);
+                });
+            }
+        };
 
         $.fn.addToCart = function (id, count, stock) {
 
@@ -432,11 +457,15 @@ if (auth == undefined) {
 
 
         $.fn.addProductToCart = function (data) {
+            if (!data || !data._id) {
+                return;
+            }
+            
             item = {
                 id: data._id,
                 product_name: data.name,
-                sku: data.sku,
-                price: data.price,
+                sku: data.sku || data._id, // Use _id as sku if sku field doesn't exist
+                price: parseFloat(data.price), // Ensure price is a number
                 quantity: 1
             };
 
@@ -471,7 +500,7 @@ if (auth == undefined) {
             let grossTotal;
             $('#total').text(cart.length);
             $.each(cart, function (index, data) {
-                total += data.quantity * data.price;
+                total += data.quantity * parseFloat(data.price);
             });
             total = total - $("#inputDiscount").val();
             $('#price').text(settings.symbol + total.toFixed(2));
@@ -533,7 +562,7 @@ if (auth == undefined) {
                                 )
                             )
                         ),
-                        $('<td>', { text: settings.symbol + (data.price * data.quantity).toFixed(2) }),
+                        $('<td>', { text: settings.symbol + (parseFloat(data.price) * data.quantity).toFixed(2) }),
                         $('<td>').append(
                             $('<button>', {
                                 class: 'btn btn-danger btn-xs',
@@ -776,7 +805,7 @@ if (auth == undefined) {
             Order No : ${orderNumber} <br>
             Ref No : ${refNumber == "" ? orderNumber : refNumber} <br>
             Customer : ${customer == 0 ? 'Walk in customer' : customer.name} <br>
-            Cashier : ${user.fullname} <br>
+            Cashier : ${user.fullname ?? 'Unknown User'} <br>
             Date : ${date}<br>
             </p>
 
@@ -879,7 +908,9 @@ if (auth == undefined) {
                     $('#viewTransaction').html('');
                     $('#viewTransaction').html(receipt);
                     $('#orderModal').modal('show');
+                    console.log('🔄 Refreshing products and raw materials after transaction...');
                     loadProducts();
+                    loadRawMaterials(); // Refresh raw materials after transaction
                     loadCustomers();
                     $(".loading").hide();
                     $("#dueModal").modal('hide');
@@ -1185,6 +1216,9 @@ if (auth == undefined) {
         $('#newProductModal').click(function () {
             $('#saveProduct').get(0).reset();
             $('#current_img').text('');
+            
+            // Reset raw materials and refresh data
+            resetRawMaterialsForm();
         });
 
 
@@ -1295,6 +1329,13 @@ if (auth == undefined) {
 
             if (allProducts[index].stock == 0) {
                 $('#stock').prop("checked", true);
+            }
+
+            // Load raw materials for this product
+            if (allProducts[index].raw_materials) {
+                loadProductRawMaterials(allProducts[index].raw_materials);
+            } else {
+                resetRawMaterialsForm();
             }
 
             $('#newProduct').modal('show');
@@ -1553,6 +1594,17 @@ if (auth == undefined) {
                 });
 
 
+                // Get raw materials info
+                let rawMaterialsInfo = '';
+                if (product.raw_materials && product.raw_materials.length > 0) {
+                    rawMaterialsInfo = product.raw_materials.map(rm => {
+                        const material = allRawMaterials.find(m => m._id == rm.material_id);
+                        return material ? `${material.name} (${rm.quantity})` : `Material ${rm.material_id} (${rm.quantity})`;
+                    }).join(', ');
+                } else {
+                    rawMaterialsInfo = 'None';
+                }
+
                 product_list += `<tr>
             <td><img id="`+ product._id + `"></td>
             <td><img style="max-height: 50px; max-width: 50px; border: 1px solid #ddd;" src="${product.img == "" ? "./assets/images/default.jpg" : img_path + product.img}" id="product_img"></td>
@@ -1560,6 +1612,7 @@ if (auth == undefined) {
             <td>${settings.symbol}${product.price}</td>
             <td>${product.stock == 1 ? product.quantity : 'N/A'}</td>
             <td>${category.length > 0 ? category[0].name : ''}</td>
+            <td style="max-width: 200px; word-wrap: break-word;">${rawMaterialsInfo}</td>
             <td class="nobr"><span class="btn-group"><button onClick="$(this).editProduct(${index})" class="btn btn-warning btn-sm"><i class="fa fa-edit"></i></button><button onClick="$(this).deleteProduct(${product._id})" class="btn btn-danger btn-sm"><i class="fa fa-trash"></i></button></span></td></tr>`;
 
                 if (counter == allProducts.length) {
@@ -2026,7 +2079,7 @@ function loadTransactions() {
                                 <td>${trans.change ? settings.symbol + Math.abs(trans.change).toFixed(2) : ''}</td>
                                 <td>${trans.paid == "" ? "" : trans.payment_type == 0 ? "Cash" : 'Card'}</td>
                                 <td>${trans.till}</td>
-                                <td>${trans.user}</td>
+                                <td>${trans.user ?? 'Unknown User'}</td>
                                 <td>${trans.paid == "" ? '<button class="btn btn-dark"><i class="fa fa-search-plus"></i></button>' : '<button onClick="$(this).viewTransaction(' + index + ')" class="btn btn-info"><i class="fa fa-search-plus"></i></button></td>'}</tr>
                     `;
 
@@ -2152,12 +2205,24 @@ function userFilter(users) {
     $('#users').empty();
     $('#users').append(`<option value="0">All</option>`);
 
+    // Check if allUsers is loaded
+    if (!allUsers || allUsers.length === 0) {
+        console.warn('allUsers not loaded yet, skipping user filter');
+        return;
+    }
+
     users.forEach(user => {
         let u = allUsers.filter(function (usr) {
             return usr._id == user;
         });
 
-        $('#users').append(`<option value="${user}">${u[0].fullname}</option>`);
+        // Add error checking to prevent undefined access
+        if (u.length > 0 && u[0] && u[0].fullname) {
+            $('#users').append(`<option value="${user}">${u[0].fullname}</option>`);
+        } else {
+            console.warn('User not found or missing fullname for ID:', user);
+            $('#users').append(`<option value="${user}">Unknown User (${user})</option>`);
+        }
     });
 
 }
@@ -2248,7 +2313,7 @@ $.fn.viewTransaction = function (index) {
         Invoice : ${orderNumber} <br>
         Ref No : ${refNumber} <br>
         Customer : ${allTransactions[index].customer == 0 ? 'Walk in Customer' : allTransactions[index].customer.name} <br>
-        Cashier : ${allTransactions[index].user} <br>
+        Cashier : ${allTransactions[index].user ?? 'Unknown User'} <br>
         Date : ${moment(allTransactions[index].date).format('DD MMM YYYY HH:mm:ss')}<br>
         </p>
 
@@ -2466,7 +2531,9 @@ let allRawMaterials = [];
 
 // Load raw materials
 function loadRawMaterials() {
+    console.log('🔄 Loading raw materials from API...');
     $.get(api + 'raw-materials/raw-materials', function (data) {
+        console.log('✅ Raw materials loaded:', data.length, 'materials');
         allRawMaterials = [...data];
         loadRawMaterialList();
     });
@@ -2482,7 +2549,6 @@ function loadRawMaterialList() {
 
     materials.forEach((material, index) => {
         counter++;
-        let category = allCategories.filter(cat => cat._id == material.category);
         
         material_list += `<tr>
             <td>${material._id}</td>
@@ -2492,7 +2558,6 @@ function loadRawMaterialList() {
             <td>${settings.symbol}${material.unit_price || '0.00'}</td>
             <td>${material.stock == 1 ? material.quantity : 'N/A'}</td>
             <td>${material.supplier || ''}</td>
-            <td>${category.length > 0 ? category[0].name : ''}</td>
             <td class="nobr"><span class="btn-group"><button onClick="$(this).editRawMaterial(${index})" class="btn btn-warning btn-sm"><i class="fa fa-edit"></i></button><button onClick="$(this).deleteRawMaterial(${material._id})" class="btn btn-danger btn-sm"><i class="fa fa-trash"></i></button></span></td>
         </tr>`;
 
@@ -2509,10 +2574,6 @@ function loadRawMaterialList() {
 // Edit raw material
 $.fn.editRawMaterial = function (index) {
     $('#RawMaterials').modal('hide');
-
-    $("#raw_material_category option").filter(function () {
-        return $(this).val() == allRawMaterials[index].category;
-    }).prop("selected", true);
 
     $('#rawMaterialName').val(allRawMaterials[index].name);
     $('#rawMaterialDescription').val(allRawMaterials[index].description || '');
@@ -2598,6 +2659,7 @@ $('#saveRawMaterial').submit(function (e) {
 
 // Raw material modal click handlers
 $('#rawMaterialsModal').click(function () {
+    loadRawMaterials(); // Reload raw materials data first
     loadRawMaterialList();
 });
 
@@ -2607,12 +2669,6 @@ $('#newRawMaterialModal').click(function () {
     $('#raw_material_id').val('');
     $('#raw_material_img').val('');
     $('#remove_raw_material_img').val('');
-    
-    // Populate categories dropdown
-    $('#raw_material_category').empty();
-    allCategories.forEach(category => {
-        $('#raw_material_category').append(`<option value="${category._id}">${category.name}</option>`);
-    });
 });
 
 // Raw material image handling
@@ -2628,5 +2684,121 @@ $(document).ready(function() {
         loadRawMaterials();
     }, 1000);
 });
+
+// Raw Materials in Products functionality
+function resetRawMaterialsForm() {
+    $('#raw_materials_container').html(`
+        <div class="raw-material-item" style="margin-bottom: 10px;">
+            <div class="row">
+                <div class="col-md-6">
+                    <select class="form-control raw-material-select" name="raw_materials[]">
+                        <option value="">Select Raw Material</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <input type="number" class="form-control raw-material-quantity" name="raw_material_quantities[]" placeholder="Quantity" min="0" step="0.01">
+                </div>
+                <div class="col-md-2">
+                    <button type="button" class="btn btn-danger btn-sm remove-raw-material" style="display: none;">
+                        <i class="fa fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `);
+    // Refresh raw materials data before populating dropdown
+    loadRawMaterials();
+    setTimeout(() => {
+        populateRawMaterialsDropdown();
+    }, 100);
+}
+
+function populateRawMaterialsDropdown() {
+    $('.raw-material-select').each(function() {
+        if ($(this).find('option').length <= 1) { // Only has the default option
+            allRawMaterials.forEach(material => {
+                $(this).append(`<option value="${material._id}">${material.name} (${material.unit || 'unit'}) - Stock: ${material.quantity || 0}</option>`);
+            });
+        }
+    });
+}
+
+function addRawMaterialRow() {
+    const newRow = `
+        <div class="raw-material-item" style="margin-bottom: 10px;">
+            <div class="row">
+                <div class="col-md-6">
+                    <select class="form-control raw-material-select" name="raw_materials[]">
+                        <option value="">Select Raw Material</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <input type="number" class="form-control raw-material-quantity" name="raw_material_quantities[]" placeholder="Quantity" min="0" step="0.01">
+                </div>
+                <div class="col-md-2">
+                    <button type="button" class="btn btn-danger btn-sm remove-raw-material">
+                        <i class="fa fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    $('#raw_materials_container').append(newRow);
+    // Refresh raw materials data before populating dropdown
+    loadRawMaterials();
+    setTimeout(() => {
+        populateRawMaterialsDropdown();
+        updateRemoveButtons();
+    }, 100);
+}
+
+function updateRemoveButtons() {
+    const items = $('.raw-material-item');
+    items.each(function(index) {
+        const removeBtn = $(this).find('.remove-raw-material');
+        if (items.length > 1) {
+            removeBtn.show();
+        } else {
+            removeBtn.hide();
+        }
+    });
+}
+
+// Event handlers for raw materials in products
+$(document).on('click', '#add-raw-material', function() {
+    addRawMaterialRow();
+});
+
+$(document).on('click', '.remove-raw-material', function() {
+    $(this).closest('.raw-material-item').remove();
+    updateRemoveButtons();
+});
+
+// Load raw materials into product form when editing
+function loadProductRawMaterials(rawMaterials) {
+    resetRawMaterialsForm();
+    
+    if (rawMaterials && rawMaterials.length > 0) {
+        // Remove the first empty row
+        $('.raw-material-item').first().remove();
+        
+        rawMaterials.forEach((rm, index) => {
+            if (index === 0) {
+                // Use the existing row
+                const firstRow = $('.raw-material-item').first();
+                firstRow.find('.raw-material-select').val(rm.material_id);
+                firstRow.find('.raw-material-quantity').val(rm.quantity);
+            } else {
+                // Add new rows
+                addRawMaterialRow();
+                const newRow = $('.raw-material-item').last();
+                newRow.find('.raw-material-select').val(rm.material_id);
+                newRow.find('.raw-material-quantity').val(rm.quantity);
+            }
+        });
+        
+        updateRemoveButtons();
+    }
+}
 
 

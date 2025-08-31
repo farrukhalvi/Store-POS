@@ -575,6 +575,31 @@
                             <label><input type="checkbox" name="stock" id="stock" style="max-width: 30px; float: left;">  Disable stock check </label>
                         </div>
                         <div class="form-group">
+                            <label for="userName">Raw Materials Used</label>
+                            <div id="raw_materials_container">
+                                <div class="raw-material-item" style="margin-bottom: 10px;">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <select class="form-control raw-material-select" name="raw_materials[]">
+                                                <option value="">Select Raw Material</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <input type="number" class="form-control raw-material-quantity" name="raw_material_quantities[]" placeholder="Quantity" min="0" step="0.01">
+                                        </div>
+                                        <div class="col-md-2">
+                                            <button type="button" class="btn btn-danger btn-sm remove-raw-material" style="display: none;">
+                                                <i class="fa fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" id="add-raw-material" class="btn btn-success btn-sm">
+                                <i class="fa fa-plus"></i> Add Raw Material
+                            </button>
+                        </div>
+                        <div class="form-group">
                             <label for="userName"><span id="rmv_img" class="btn btn-xs btn-warning">Remove</span> Picture </label>                      
                             <div id="current_img"></div>
                             <input type="file" name="imagename" id="imagename">                            
@@ -634,6 +659,7 @@
                                     <th>Price</th>
                                     <th>Stock</th>
                                     <th>Category</th>
+                                    <th>Raw Materials</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
@@ -720,10 +746,6 @@
                         <input type="hidden" name="img" id="raw_material_img">
                         <input type="hidden" name="remove" id="remove_raw_material_img">
                         <div class="form-group">
-                            <label for="userName">Category</label>
-                            <select name="category" class="form-control" id="raw_material_category"></select>
-                        </div>
-                        <div class="form-group">
                             <label for="userName">Material Name</label>
                             <input type="text" required="required"  name="name" parsley-trigger="change" placeholder="Enter material name" class="form-control" id="rawMaterialName">
                         </div>
@@ -786,7 +808,6 @@
                                     <th>Unit Price</th>
                                     <th>Stock</th>
                                     <th>Supplier</th>
-                                    <th>Category</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>

@@ -1,5 +1,5 @@
 // Test script to troubleshoot admin login issues
-const Datastore = require('nedb');
+const Datastore = require('@seald-io/nedb');
 const path = require('path');
 
 // Connect to the users database

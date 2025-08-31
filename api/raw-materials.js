@@ -2,7 +2,7 @@ const app = require( "express" )();
 const server = require( "http" ).Server( app );
 const bodyParser = require( "body-parser" );
 const multer = require( "multer" );
-const Datastore = require( "nedb" );
+const Datastore = require( "@seald-io/nedb" );
 const async = require( "async" );
 const fs = require( "fs" );
 const path = require("path");
@@ -47,7 +47,7 @@ app.get( "/raw-material/:materialId", function ( req, res ) {
         res.status( 500 ).send( "ID field is required." );
     } else {
         rawMaterialsDB.findOne( {
-            _id: parseInt(req.params.materialId)
+            _id: req.params.materialId
         }, function ( err, material ) {
             res.send( material );
         } );
@@ -98,7 +98,6 @@ app.post( "/raw-material", upload.single('imagename'), function ( req, res ) {
         quantity: req.body.quantity == "" ? 0 : req.body.quantity,
         unit_price: req.body.unit_price,
         supplier: req.body.supplier,
-        category: req.body.category,
         stock: req.body.stock == "on" ? 0 : 1,    
         img: image        
     }
@@ -112,7 +111,7 @@ app.post( "/raw-material", upload.single('imagename'), function ( req, res ) {
     }
     else { 
         rawMaterialsDB.update( {
-            _id: parseInt(req.body.id)
+            _id: req.body.id
         }, RawMaterial, {}, function (
             err,
             numReplaced,
@@ -143,7 +142,7 @@ app.delete( "/raw-material/:materialId", function ( req, res ) {
 app.post( "/raw-material/sku", function ( req, res ) {
     var request = req.body;
     rawMaterialsDB.findOne( {
-            _id: parseInt(request.skuCode)
+            _id: request.skuCode
     }, function ( err, material ) {
          res.send( material );
     } );
@@ -155,7 +154,7 @@ app.decrementRawMaterialInventory = function ( materials ) {
 
     async.eachSeries( materials, function ( transactionMaterial, callback ) {
         rawMaterialsDB.findOne( {
-            _id: parseInt(transactionMaterial.id)
+            _id: transactionMaterial.id
         }, function (
             err,
             material
@@ -169,7 +168,7 @@ app.decrementRawMaterialInventory = function ( materials ) {
                     parseInt( transactionMaterial.quantity );
 
                 rawMaterialsDB.update( {
-                        _id: parseInt(material._id)
+                        _id: material._id
                     }, {
                         $set: {
                             quantity: updatedQuantity
