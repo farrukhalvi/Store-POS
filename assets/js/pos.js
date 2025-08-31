@@ -230,6 +230,7 @@ if (auth == undefined) {
 
         if (0 == user.perm_products) { $(".p_one").hide() };
         if (0 == user.perm_categories) { $(".p_two").hide() };
+        if (0 == user.perm_raw_materials) { $(".p_six").hide() };
         if (0 == user.perm_transactions) { $(".p_three").hide() };
         if (0 == user.perm_users) { $(".p_four").hide() };
         if (0 == user.perm_settings) { $(".p_five").hide() };
@@ -1330,6 +1331,13 @@ if (auth == undefined) {
             }
             else {
                 $('#perm_categories').prop("checked", false);
+            }
+
+            if (allUsers[index].perm_raw_materials == 1) {
+                $('#perm_raw_materials').prop("checked", true);
+            }
+            else {
+                $('#perm_raw_materials').prop("checked", false);
             }
 
             if (allUsers[index].perm_transactions == 1) {
@@ -2451,6 +2459,174 @@ $('#quit').click(function () {
             ipcRenderer.send('app-quit', '');
         }
     });
+});
+
+// Raw Materials functionality
+let allRawMaterials = [];
+
+// Load raw materials
+function loadRawMaterials() {
+    $.get(api + 'raw-materials/raw-materials', function (data) {
+        allRawMaterials = [...data];
+        loadRawMaterialList();
+    });
+}
+
+// Load raw materials list in modal
+function loadRawMaterialList() {
+    let materials = [...allRawMaterials];
+    let material_list = '';
+    let counter = 0;
+    $('#raw_material_list').empty();
+    $('#rawMaterialList').DataTable().destroy();
+
+    materials.forEach((material, index) => {
+        counter++;
+        let category = allCategories.filter(cat => cat._id == material.category);
+        
+        material_list += `<tr>
+            <td>${material._id}</td>
+            <td>${material.name}</td>
+            <td>${material.description || ''}</td>
+            <td>${material.unit || ''}</td>
+            <td>${settings.symbol}${material.unit_price || '0.00'}</td>
+            <td>${material.stock == 1 ? material.quantity : 'N/A'}</td>
+            <td>${material.supplier || ''}</td>
+            <td>${category.length > 0 ? category[0].name : ''}</td>
+            <td class="nobr"><span class="btn-group"><button onClick="$(this).editRawMaterial(${index})" class="btn btn-warning btn-sm"><i class="fa fa-edit"></i></button><button onClick="$(this).deleteRawMaterial(${material._id})" class="btn btn-danger btn-sm"><i class="fa fa-trash"></i></button></span></td>
+        </tr>`;
+
+        if (counter == allRawMaterials.length) {
+            $('#raw_material_list').html(material_list);
+            $('#rawMaterialList').DataTable({
+                "pageLength": 10,
+                "order": [[ 0, "desc" ]]
+            });
+        }
+    });
+}
+
+// Edit raw material
+$.fn.editRawMaterial = function (index) {
+    $('#RawMaterials').modal('hide');
+
+    $("#raw_material_category option").filter(function () {
+        return $(this).val() == allRawMaterials[index].category;
+    }).prop("selected", true);
+
+    $('#rawMaterialName').val(allRawMaterials[index].name);
+    $('#rawMaterialDescription').val(allRawMaterials[index].description || '');
+    $('#rawMaterialUnit').val(allRawMaterials[index].unit || '');
+    $('#raw_material_price').val(allRawMaterials[index].unit_price);
+    $('#raw_material_quantity').val(allRawMaterials[index].quantity);
+    $('#rawMaterialSupplier').val(allRawMaterials[index].supplier || '');
+    $('#raw_material_id').val(allRawMaterials[index]._id);
+    $('#raw_material_img').val(allRawMaterials[index].img);
+
+    if (allRawMaterials[index].stock == 0) {
+        $('#raw_material_stock').prop('checked', true);
+    }
+
+    if (allRawMaterials[index].img != "") {
+        $('#current_raw_material_img').html(`<img style="max-height: 50px; max-width: 50px; border: 1px solid #ddd;" src="${img_path + allRawMaterials[index].img}">`);
+    }
+
+    $('#newRawMaterial').modal('show');
+}
+
+// Delete raw material
+$.fn.deleteRawMaterial = function (id) {
+    Swal.fire({
+        title: 'Are you sure?',
+        text: "You are about to delete this raw material.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Yes, delete it!'
+    }).then((result) => {
+        if (result.value) {
+            $.ajax({
+                url: api + 'raw-materials/raw-material/' + id,
+                type: 'DELETE',
+                success: function (data) {
+                    loadRawMaterials();
+                    Swal.fire(
+                        'Deleted!',
+                        'Raw material has been deleted.',
+                        'success'
+                    );
+                }
+            });
+        }
+    });
+}
+
+// Raw material form submission
+$('#saveRawMaterial').submit(function (e) {
+    e.preventDefault();
+
+    $(this).attr('action', api + 'raw-materials/raw-material');
+    $(this).attr('method', 'POST');
+
+    $(this).ajaxSubmit({
+        contentType: 'application/json',
+        success: function (response) {
+            $('#saveRawMaterial').get(0).reset();
+            $('#current_raw_material_img').text('');
+
+            loadRawMaterials();
+            Swal.fire({
+                title: 'Raw Material Saved',
+                text: "Select an option below to continue.",
+                icon: 'success',
+                showCancelButton: true,
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Add another',
+                cancelButtonText: 'Close'
+            }).then((result) => {
+                if (!result.value) {
+                    $("#newRawMaterial").modal('hide');
+                }
+            });
+        }, error: function (data) {
+            console.log(data);
+        }
+    });
+});
+
+// Raw material modal click handlers
+$('#rawMaterialsModal').click(function () {
+    loadRawMaterialList();
+});
+
+$('#newRawMaterialModal').click(function () {
+    $('#saveRawMaterial').get(0).reset();
+    $('#current_raw_material_img').text('');
+    $('#raw_material_id').val('');
+    $('#raw_material_img').val('');
+    $('#remove_raw_material_img').val('');
+    
+    // Populate categories dropdown
+    $('#raw_material_category').empty();
+    allCategories.forEach(category => {
+        $('#raw_material_category').append(`<option value="${category._id}">${category.name}</option>`);
+    });
+});
+
+// Raw material image handling
+$('#rmv_raw_material_img').click(function () {
+    $('#remove_raw_material_img').val(1);
+    $('#current_raw_material_img').text('');
+});
+
+// Load raw materials when page loads
+$(document).ready(function() {
+    // Load raw materials after categories are loaded
+    setTimeout(function() {
+        loadRawMaterials();
+    }, 1000);
 });
 
 

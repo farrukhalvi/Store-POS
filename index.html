@@ -42,6 +42,15 @@
                                 <i class="fa fa-plus"></i> 
                             </button>
                             </div>
+
+                            <div class="btn-group p_six">
+                            <button id="rawMaterialsModal" data-toggle="modal" data-target="#RawMaterials" type="button" class="btn btn-default waves-effect waves-light">
+                                    <span class="btn-label"><i class="glyphicon glyphicon-tags"></i> </span>  Raw Materials   
+                            </button>
+                            <button id="newRawMaterialModal" data-toggle="modal" data-target="#newRawMaterial" type="button" class="btn btn-warning waves-effect waves-light">
+                                    <i class="fa fa-plus"></i> 
+                            </button>
+                            </div>
                    
                             <button id="viewRefOrders" data-toggle="modal" data-target="#holdOrdersModal" type="button" class="btn btn-info waves-effect waves-light">
                                     <span class="btn-label"><i class="fa fa-shopping-basket"></i> </span> Open Tabs
@@ -696,6 +705,101 @@
 
 
 
+     <div id="newRawMaterial" class="modal fade bs-example-modal-sm" tabindex="-1" role="dialog" aria-labelledby="mySmallModalLabel" aria-hidden="true" style="display: none;">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>
+                    <h4 class="modal-title" id="mySmallModalLabel">Raw Material
+                        <img  class="loading m-t-5" style="margin-left: 35%" height="50px" src="assets/images/loading.gif" alt="">
+                    </h4>
+                </div>
+                <div class="modal-body">
+                    <form id="saveRawMaterial" encType="multipart/form-data">
+                        <input type="hidden" name="id" id="raw_material_id">
+                        <input type="hidden" name="img" id="raw_material_img">
+                        <input type="hidden" name="remove" id="remove_raw_material_img">
+                        <div class="form-group">
+                            <label for="userName">Category</label>
+                            <select name="category" class="form-control" id="raw_material_category"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="userName">Material Name</label>
+                            <input type="text" required="required"  name="name" parsley-trigger="change" placeholder="Enter material name" class="form-control" id="rawMaterialName">
+                        </div>
+                        <div class="form-group">
+                            <label for="userName">Description</label>
+                            <textarea name="description" placeholder="Enter description" class="form-control" id="rawMaterialDescription"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="userName">Unit</label>
+                            <input type="text" name="unit" placeholder="e.g., kg, liter, piece" class="form-control" id="rawMaterialUnit">
+                        </div>
+                        <div class="form-group">
+                            <label for="userName">Unit Price</label>
+                            <input type="text" required="required" name="unit_price" placeholder="Price per unit" class="form-control" id="raw_material_price">
+                        </div>
+                        <div class="form-group">
+                            <label for="userName">Stock Quantity</label>
+                            <input type="text" name="quantity" placeholder="Available stock" class="form-control" id="raw_material_quantity">
+                        </div>
+                        <div class="form-group">
+                            <label for="userName">Supplier</label>
+                            <input type="text" name="supplier" placeholder="Supplier name" class="form-control" id="rawMaterialSupplier">
+                        </div>
+                        <div class="form-group">
+                            <label><input type="checkbox" name="stock" id="raw_material_stock" style="max-width: 30px; float: left;">  Disable stock check </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="userName"><span id="rmv_raw_material_img" class="btn btn-xs btn-warning">Remove</span> Picture </label>                      
+                            <div id="current_raw_material_img"></div>
+                            <input type="file" name="imagename" id="raw_material_imagename">                            
+                        </div>
+  
+                        <input type="submit" id="submitRawMaterial" class="btn btn-primary btn-block waves-effect waves-light">
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+     <div id="RawMaterials" class="modal fade bs-example-modal-sm" tabindex="-1" role="dialog" aria-labelledby="mySmallModalLabel" aria-hidden="true" style="display: none;">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>
+                        <h4 class="modal-title" id="mySmallModalLabel">Raw Materials
+                            <img  class="loading m-t-5" style="margin-left: 35%" height="50px" src="assets/images/loading.gif" alt="">
+                            <button class="btn btn-white pull-right" id="print_raw_materials_list">Download</button>
+                        </h4>                        
+                    </div>
+                     <div class="modal-body" id="all_raw_materials" style="padding: 20px; padding-right: 40px;"> 
+                        <table class="table table-bordered" id="rawMaterialList">
+                            <thead>
+                                <tr>                                                                      
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>Description</th>                                      
+                                    <th>Unit</th>
+                                    <th>Unit Price</th>
+                                    <th>Stock</th>
+                                    <th>Supplier</th>
+                                    <th>Category</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="raw_material_list"></tbody>
+                        </table>
+
+                    </div>
+               </div>
+          </div>
+     </div>
+
+
+
      <div id="userModal" class="modal fade bs-example-modal-sm" tabindex="-1" role="dialog" aria-labelledby="mySmallModalLabel" aria-hidden="true" style="display: none;">
         <div class="modal-dialog modal-sm">
             <div class="modal-content">
@@ -735,6 +839,9 @@
                             </div>
                             <div class="form-group">
                                 <span><input type="checkbox" name="perm_categories" id="perm_categories"> Manage Product Categories </span>
+                          </div>
+                          <div class="form-group">
+                                <span><input type="checkbox" name="perm_raw_materials" id="perm_raw_materials"> Manage Raw Materials </span>
                           </div>
                           <div class="form-group">
                             <span><input type="checkbox" name="perm_transactions" id="perm_transactions"> View Transactions </span>
