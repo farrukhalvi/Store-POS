@@ -65,8 +65,35 @@ class LocalStorage {
 
 let storage = new LocalStorage();
 
-let img_path = './database/POS/uploads/';
+let img_path = './public/uploads/';
 let api = 'http://' + host + ':' + port + '/api/';
+console.log('API URL constructed:', api);
+
+// Function to wait for server to be ready
+async function waitForServer(maxRetries = 10, delay = 500) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const response = await $.get(api.slice(0, -5)); // Remove '/api/' to test root endpoint
+            console.log('✅ Server is ready!');
+            return true;
+        } catch (error) {
+            console.log(`⏳ Waiting for server... (attempt ${i + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    console.error('❌ Server failed to start after', maxRetries, 'attempts');
+    return false;
+}
+
+// Function to make API calls with retry logic
+function apiGet(endpoint, successCallback, errorCallback) {
+    $.get(api + endpoint)
+        .done(successCallback)
+        .fail(function(xhr, status, error) {
+            console.error(`API call failed: ${endpoint}`, error);
+            if (errorCallback) errorCallback(xhr, status, error);
+        });
+}
 let btoa = require('btoa');
 let jsPDF = require('jspdf');
 let html2canvas = require('html2canvas');
@@ -147,6 +174,15 @@ user = storage.get('user');
 console.log('Stored auth data:', auth);
 console.log('Stored user data:', user);
 
+// Check if user data is corrupted and clear it
+if (user && typeof user === 'object' && !user._id && !user.id) {
+    console.warn('User data appears corrupted, clearing storage');
+    storage.delete('auth');
+    storage.delete('user');
+    auth = undefined;
+    user = undefined;
+}
+
 if (auth == undefined) {
     console.log('No auth data found, checking for admin user...');
     $.get(api + 'users/check/', function (data) { 
@@ -173,30 +209,50 @@ if (auth == undefined) {
         }
     }
 
-    $.get(api + 'users/user/' + user._id, function (data) {
-        user = data;
-        $('#loggedin-user').text(user.fullname);
+    // Initialize API calls after server is ready
+    waitForServer().then(serverReady => {
+        if (!serverReady) return;
+        
+        // Add safety check for user._id
+        if (user && user._id) {
+            apiGet('users/user/' + user._id, function (data) {
+                user = data;
+                $('#loggedin-user').text(user.fullname);
+            });
+        } else {
+            console.error('User object is missing or has no _id:', user);
+            console.error('User object keys:', user ? Object.keys(user) : 'user is null/undefined');
+            // Check if user has 'id' instead of '_id'
+            if (user && user.id) {
+                console.log('User has id instead of _id, using id:', user.id);
+                apiGet('users/user/' + user.id, function (data) {
+                    user = data;
+                    $('#loggedin-user').text(user.fullname);
+                });
+            } else {
+                // Redirect to login if user data is invalid
+                authenticate();
+            }
+        }
+        
+        // Load settings
+        apiGet('settings/get', function (data) {
+            settings = data.settings;
+        });
+        
+        // Load users
+        apiGet('users/all', function (users) {
+            allUsers = [...users];
+        });
     });
 
 
-    $.get(api + 'settings/get', function (data) {
-        settings = data.settings;
-    });
-
-
-    $.get(api + 'users/all', function (users) {
-        allUsers = [...users];
-    });
 
 
 
     $(document).ready(function () {
 
         $(".loading").hide();
-
-        loadCategories();
-        loadProducts();
-        loadCustomers();
 
 
         if (settings && settings.symbol) {
@@ -228,17 +284,18 @@ if (auth == undefined) {
         });
 
 
-        if (0 == user.perm_products) { $(".p_one").hide() };
-        if (0 == user.perm_categories) { $(".p_two").hide() };
-        if (0 == user.perm_raw_materials) { $(".p_six").hide() };
-        if (0 == user.perm_transactions) { $(".p_three").hide() };
-        if (0 == user.perm_users) { $(".p_four").hide() };
-        if (0 == user.perm_settings) { $(".p_five").hide() };
+        // Hide features based on permissions (handle both boolean and numeric values)
+        if (!user.perm_products || user.perm_products === 0) { $(".p_one").hide() };
+        if (!user.perm_categories || user.perm_categories === 0) { $(".p_two").hide() };
+        if (!user.perm_raw_materials || user.perm_raw_materials === 0) { $(".p_six").hide() };
+        if (!user.perm_transactions || user.perm_transactions === 0) { $(".p_three").hide() };
+        if (!user.perm_users || user.perm_users === 0) { $(".p_four").hide() };
+        if (!user.perm_settings || user.perm_settings === 0) { $(".p_five").hide() };
 
         function loadProducts() {
             console.log('🔄 Loading products from API...');
 
-            $.get(api + 'inventory/products', function (data) {
+            apiGet('inventory/products', function (data) {
                 console.log('✅ Products loaded:', data.length, 'products');
 
                 data.forEach(item => {
@@ -261,12 +318,12 @@ if (auth == undefined) {
                     let item_info = `<div class="col-lg-2 box ${item.category}"
                                 onclick="addToCart(${item._id}, ${item.quantity}, ${item.stock})">
                             <div class="widget-panel widget-style-2 ">                    
-                            <div id="image"><img src="${item.img == "" ? "./assets/images/default.jpg" : img_path + item.img}" id="product_img" alt=""></div>                    
+                            <div id="image"><img src="${!item.image || item.image == "" ? "./assets/images/default.jpg" : img_path + "product_image/" + item.image}" id="product_img" alt=""></div>                    
                                         <div class="text-muted m-t-5 text-center">
                                         <div class="name" id="product_name">${item.name}</div> 
                                         <span class="sku">${item.sku || item._id}</span>
-                                        <span class="stock">STOCK </span><span class="count">${item.stock == 1 ? item.quantity : 'N/A'}</span></div>
-                                        <sp class="text-success text-center"><b data-plugin="counterup">${settings.symbol + item.price}</b> </sp>
+                                        <span class="stock">STOCK </span><span class="count">${item.quantity || 'N/A'}</span></div>
+                                        <sp class="text-success text-center"><b data-plugin="counterup">${settings && settings.symbol ? settings.symbol : '$'}${item.price}</b> </sp>
                             </div>
                         </div>`;
                     $('#parent').append(item_info);
@@ -285,21 +342,39 @@ if (auth == undefined) {
 
         }
 
-        function loadCategories() {
-            $.get(api + 'categories/all', function (data) {
+        function loadCategories(callback) {
+            apiGet('categories/all', function (data) {
                 allCategories = data;
                 loadCategoryList();
                 $('#category').html(`<option value="0">Select</option>`);
                 allCategories.forEach(category => {
                     $('#category').append(`<option value="${category._id}">${category.name}</option>`);
                 });
+                
+                // Call callback when categories are loaded
+                if (callback && typeof callback === 'function') {
+                    callback();
+                }
             });
+        }
+
+        // Helper function to ensure categories are loaded before products
+        function refreshProductsWithCategories() {
+            if (allCategories.length === 0) {
+                // Categories not loaded yet, load them first
+                loadCategories(() => {
+                    loadProducts();
+                });
+            } else {
+                // Categories already loaded, just refresh products
+                loadProducts();
+            }
         }
 
 
         function loadCustomers() {
 
-            $.get(api + 'customers/all', function (customers) {
+            apiGet('customers/all', function (customers) {
 
                 $('#customer').html(`<option value="0" selected="selected">Walk in customer</option>`);
 
@@ -315,6 +390,17 @@ if (auth == undefined) {
 
         }
 
+        // Load all data after server is ready
+        waitForServer().then(serverReady => {
+            if (serverReady) {
+                // Load categories first, then other data when categories are ready
+                loadCategories(() => {
+                    loadProducts();
+                    loadCustomers();
+                    loadRawMaterials();
+                });
+            }
+        });
 
         // Global function for onclick calls
         window.addToCart = function (id, count, stock) {
@@ -461,6 +547,17 @@ if (auth == undefined) {
                 return;
             }
             
+            // Check stock availability before adding
+            if (data.quantity !== undefined && data.quantity <= 0) {
+                Swal.fire({
+                    title: 'Out of Stock!',
+                    text: `"${data.name}" is currently out of stock.`,
+                    icon: 'warning',
+                    confirmButtonText: 'OK'
+                });
+                return;
+            }
+            
             item = {
                 id: data._id,
                 product_name: data.name,
@@ -473,7 +570,7 @@ if (auth == undefined) {
                 $(this).qtIncrement(index);
             } else {
                 cart.push(item);
-                $(this).renderTable(cart)
+                $('#cartTable').renderTable(cart)
             }
         }
 
@@ -487,6 +584,14 @@ if (auth == undefined) {
                 }
             });
             return toReturn;
+        }
+
+        // Helper function to get product stock information
+        $.fn.getProductStock = function (productId) {
+            let product = allProducts.filter(function (selected) {
+                return selected._id == parseInt(productId);
+            });
+            return product[0] || null;
         }
 
 
@@ -529,7 +634,8 @@ if (auth == undefined) {
 
 
         $.fn.renderTable = function (cartList) {
-            $('#cartTable > tbody').empty();
+            // Clear the table body completely
+            $('#cartTable tbody').empty();
             $(this).calculateCart();
             $.each(cartList, function (index, data) {
                 $('#cartTable > tbody').append(
@@ -550,7 +656,7 @@ if (auth == undefined) {
                                     class: 'form-control',
                                     type: 'number',
                                     value: data.quantity,
-                                    onInput: '$(this).qtInput(' + index + ')'
+                                    oninput: '$(this).qtInput(' + index + ')'
                                 }),
                                 $('<div>', { class: 'input-group-btn btn-xs' }).append(
                                     $('<button>', {
@@ -579,8 +685,7 @@ if (auth == undefined) {
 
         $.fn.deleteFromCart = function (index) {
             cart.splice(index, 1);
-            $(this).renderTable(cart);
-
+            $('#cartTable').renderTable(cart);
         }
 
 
@@ -592,41 +697,82 @@ if (auth == undefined) {
                 return selected._id == parseInt(item.id);
             });
 
-            if (product[0].stock == 1) {
+            if (product[0].quantity !== undefined) {
                 if (item.quantity < product[0].quantity) {
                     item.quantity += 1;
-                    $(this).renderTable(cart);
+                    $('#cartTable').renderTable(cart);
                 }
 
                 else {
-                    Swal.fire(
-                        'No more stock!',
-                        'You have already added all the available stock.',
-                        'info'
-                    );
+                    Swal.fire({
+                        title: 'Insufficient Stock!',
+                        text: `Cannot add more "${item.product_name}". Only ${product[0].quantity} units available in stock.`,
+                        icon: 'warning',
+                        confirmButtonText: 'OK'
+                    });
                 }
             }
             else {
                 item.quantity += 1;
-                $(this).renderTable(cart);
+                $('#cartTable').renderTable(cart);
             }
 
         }
 
 
         $.fn.qtDecrement = function (i) {
+            item = cart[i];
             if (item.quantity > 1) {
-                item = cart[i];
                 item.quantity -= 1;
-                $(this).renderTable(cart);
+                $('#cartTable').renderTable(cart);
+            } else {
+                // Show message when trying to go below minimum quantity
+                Swal.fire({
+                    title: 'Minimum Quantity!',
+                    text: `Minimum quantity is 1 for "${item.product_name}". Use the delete button to remove the item.`,
+                    icon: 'info',
+                    confirmButtonText: 'OK'
+                });
             }
         }
 
 
         $.fn.qtInput = function (i) {
             item = cart[i];
-            item.quantity = $(this).val();
-            $(this).renderTable(cart);
+            let newQuantity = parseInt($(this).val()) || 1;
+            
+            // Check stock availability
+            let product = allProducts.filter(function (selected) {
+                return selected._id == parseInt(item.id);
+            });
+            
+            if (product[0] && product[0].quantity !== undefined) {
+                if (newQuantity > product[0].quantity) {
+                    Swal.fire({
+                        title: 'Insufficient Stock!',
+                        text: `Cannot set quantity to ${newQuantity}. Only ${product[0].quantity} units available in stock for "${item.product_name}".`,
+                        icon: 'warning',
+                        confirmButtonText: 'OK'
+                    });
+                    // Reset to maximum available quantity
+                    item.quantity = product[0].quantity;
+                    $(this).val(item.quantity);
+                } else if (newQuantity < 1) {
+                    // Minimum quantity is 1
+                    item.quantity = 1;
+                    $(this).val(1);
+                } else {
+                    item.quantity = newQuantity;
+                }
+            } else {
+                // No stock limit, but ensure minimum quantity
+                item.quantity = newQuantity < 1 ? 1 : newQuantity;
+                if (newQuantity < 1) {
+                    $(this).val(1);
+                }
+            }
+            
+            $('#cartTable').renderTable(cart);
         }
 
 
@@ -646,7 +792,7 @@ if (auth == undefined) {
                     if (result.value) {
 
                         cart = [];
-                        $(this).renderTable(cart);
+                        $('#cartTable').renderTable(cart);
                         holdOrder = 0;
 
                         Swal.fire(
@@ -792,7 +938,7 @@ if (auth == undefined) {
 
             receipt = `<div style="font-size: 10px;">                            
         <p style="text-align: center;">
-        ${settings.img == "" ? settings.img : '<img style="max-width: 50px;max-width: 100px;" src ="' + img_path + settings.img + '" /><br>'}
+        ${!settings.img || settings.img == "" ? "" : '<img style="max-width: 50px;max-width: 100px;" src ="' + img_path + "settings/" + settings.img + '" /><br>'}
             <span style="font-size: 22px;">${settings.store}</span> <br>
             ${settings.address_one} <br>
             ${settings.address_two} <br>
@@ -891,12 +1037,12 @@ if (auth == undefined) {
                 till: platform.till,
                 mac: platform.mac,
                 user: user.fullname,
-                user_id: user._id
+                user_id: user && (user._id || user.id) ? (user._id || user.id) : null
             }
 
 
             $.ajax({
-                url: api + 'new',
+                url: api + 'transactions/transaction',
                 type: method,
                 data: JSON.stringify(data),
                 contentType: 'application/json; charset=utf-8',
@@ -909,7 +1055,7 @@ if (auth == undefined) {
                     $('#viewTransaction').html(receipt);
                     $('#orderModal').modal('show');
                     console.log('🔄 Refreshing products and raw materials after transaction...');
-                    loadProducts();
+                    refreshProductsWithCategories();
                     loadRawMaterials(); // Refresh raw materials after transaction
                     loadCustomers();
                     $(".loading").hide();
@@ -917,13 +1063,36 @@ if (auth == undefined) {
                     $("#paymentModel").modal('hide');
                     $(this).getHoldOrders();
                     $(this).getCustomerOrders();
-                    $(this).renderTable(cart);
+                    $('#cartTable').renderTable(cart);
 
-                }, error: function (data) {
+                }, error: function (xhr) {
                     $(".loading").hide();
                     $("#dueModal").modal('toggle');
-                    swal("Something went wrong!", 'Please refresh this page and try again');
-
+                    
+                    // Handle raw material validation errors
+                    if (xhr.status === 400 && xhr.responseJSON && xhr.responseJSON.error === "Insufficient raw materials to fulfill this order") {
+                        const details = xhr.responseJSON.details || [];
+                        let errorMessage = "Cannot process this order due to insufficient raw materials:\n\n";
+                        
+                        details.forEach(material => {
+                            errorMessage += `• ${material.product_name}: ${material.raw_material_name}\n`;
+                            errorMessage += `  Required: ${material.required}, Available: ${material.available}\n`;
+                            errorMessage += `  Shortfall: ${material.shortfall}\n\n`;
+                        });
+                        
+                        errorMessage += "Please restock the raw materials or reduce the order quantity.";
+                        
+                        Swal.fire({
+                            title: 'Insufficient Raw Materials!',
+                            text: errorMessage,
+                            icon: 'warning',
+                            confirmButtonText: 'OK'
+                        });
+                    } else {
+                        // Generic error handling
+                        const errorMsg = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Please refresh this page and try again';
+                        Swal.fire("Something went wrong!", errorMsg, 'error');
+                    }
                 }
             });
 
@@ -934,16 +1103,21 @@ if (auth == undefined) {
         }
 
 
-        $.get(api + 'on-hold', function (data) {
-            holdOrderList = data;
-            holdOrderlocation.empty();
-            clearInterval(dotInterval);
-            $(this).randerHoldOrders(holdOrderList, holdOrderlocation, 1);
+        // Load hold orders after server is ready
+        waitForServer().then(serverReady => {
+            if (serverReady) {
+                apiGet('on-hold', function (data) {
+                    holdOrderList = data;
+                    holdOrderlocation.empty();
+                    clearInterval(dotInterval);
+                    $(this).randerHoldOrders(holdOrderList, holdOrderlocation, 1);
+                });
+            }
         });
 
 
         $.fn.getHoldOrders = function () {
-            $.get(api + 'on-hold', function (data) {
+            apiGet('on-hold', function (data) {
                 holdOrderList = data;
                 clearInterval(dotInterval);
                 holdOrderlocation.empty();
@@ -1050,7 +1224,7 @@ if (auth == undefined) {
                     cart.push(item);
                 })
             }
-            $(this).renderTable(cart);
+            $('#cartTable').renderTable(cart);
             $("#holdOrdersModal").modal('hide');
             $("#customerModal").modal('hide');
         }
@@ -1180,8 +1354,11 @@ if (auth == undefined) {
 
 
         $('#transactions').click(function () {
-            loadTransactions();
-            loadUserList();
+            // Load all transaction page data
+            window.loadTransactions();
+            window.loadUserList();
+            window.loadTransactionStats();
+            window.initTransactionFilters();
 
             $('#pos_view').hide();
             $('#pointofsale').show();
@@ -1227,15 +1404,18 @@ if (auth == undefined) {
 
             $(this).attr('action', api + 'inventory/product');
             $(this).attr('method', 'POST');
+            
+            // Debug: Log form data before submission
+            console.log('Form submission - Category selected:', $('#category').val());
 
             $(this).ajaxSubmit({
-                contentType: 'application/json',
+                // Don't set contentType for file uploads - let jQuery handle it automatically
                 success: function (response) {
 
                     $('#saveProduct').get(0).reset();
                     $('#current_img').text('');
 
-                    loadProducts();
+                    refreshProductsWithCategories();
                     Swal.fire({
                         title: 'Product Saved',
                         text: "Select an option below to continue.",
@@ -1251,8 +1431,13 @@ if (auth == undefined) {
                             $("#newProduct").modal('hide');
                         }
                     });
-                }, error: function (data) {
-                    console.log(data);
+                }, error: function (xhr, status, error) {
+                    console.error('Product save failed:', xhr.responseText);
+                    Swal.fire({
+                        title: 'Error',
+                        text: 'Failed to save product: ' + (xhr.responseJSON?.error || error),
+                        icon: 'error'
+                    });
                 }
             });
 
@@ -1278,8 +1463,9 @@ if (auth == undefined) {
                 data: $(this).serialize(),
                 success: function (data, textStatus, jqXHR) {
                     $('#saveCategory').get(0).reset();
-                    loadCategories();
-                    loadProducts();
+                    loadCategories(() => {
+                        loadProducts();
+                    });
                     Swal.fire({
                         title: 'Category Saved',
                         text: "Select an option below to continue.",
@@ -1309,21 +1495,26 @@ if (auth == undefined) {
 
             $('#Products').modal('hide');
 
-            $("#category option").filter(function () {
-                return $(this).val() == allProducts[index].category;
-            }).prop("selected", true);
+            // Set selected category (with small delay to ensure dropdown is ready)
+            setTimeout(() => {
+                if (allProducts[index].category_id) {
+                    $("#category").val(allProducts[index].category_id);
+                } else {
+                    $("#category").val("0"); // Default "Select" option
+                }
+            }, 100);
 
             $('#productName').val(allProducts[index].name);
             $('#product_price').val(allProducts[index].price);
             $('#quantity').val(allProducts[index].quantity);
 
             $('#product_id').val(allProducts[index]._id);
-            $('#img').val(allProducts[index].img);
+            $('#img').val(allProducts[index].image);
 
-            if (allProducts[index].img != "") {
+            if (allProducts[index].image != "") {
 
                 $('#imagename').hide();
-                $('#current_img').html(`<img src="${img_path + allProducts[index].img}" alt="">`);
+                $('#current_img').html(`<img src="${img_path + "product_image/" + allProducts[index].image}" alt="">`);
                 $('#rmv_img').show();
             }
 
@@ -1332,8 +1523,8 @@ if (auth == undefined) {
             }
 
             // Load raw materials for this product
-            if (allProducts[index].raw_materials) {
-                loadProductRawMaterials(allProducts[index].raw_materials);
+            if (allProducts[index].rawMaterials && allProducts[index].rawMaterials.length > 0) {
+                loadProductRawMaterials(allProducts[index].rawMaterials);
             } else {
                 resetRawMaterialsForm();
             }
@@ -1408,10 +1599,26 @@ if (auth == undefined) {
 
         $.fn.editCategory = function (index) {
             $('#Categories').modal('hide');
+            
             $('#categoryName').val(allCategories[index].name);
+            $('#categoryDescription').val(allCategories[index].description || '');
             $('#category_id').val(allCategories[index]._id);
+            
+            // Set the active checkbox
+            if (allCategories[index].is_active === true) {
+                $('#category_is_active').prop('checked', true);
+            } else {
+                $('#category_is_active').prop('checked', false);
+            }
+            
             $('#newCategory').modal('show');
         }
+
+        // Clear category form when creating new category
+        $('#newCategoryModal').click(function() {
+            $('#saveCategory').get(0).reset();
+            $('#category_is_active').prop('checked', true); // Default to active for new categories
+        });
 
 
         $.fn.deleteProduct = function (id) {
@@ -1431,7 +1638,7 @@ if (auth == undefined) {
                         url: api + 'inventory/product/' + id,
                         type: 'DELETE',
                         success: function (result) {
-                            loadProducts();
+                            refreshProductsWithCategories();
                             Swal.fire(
                                 'Done!',
                                 'Product deleted',
@@ -1529,6 +1736,7 @@ if (auth == undefined) {
             $('#user_list').empty();
             $('#userList').DataTable().destroy();
 
+            console.log('Making API call to:', api + 'users/all');
             $.get(api + 'users/all', function (users) {
 
 
@@ -1540,14 +1748,14 @@ if (auth == undefined) {
                     state = [];
                     let class_name = '';
 
-                    if (user.status != "") {
-                        state = user.status.split("_");
-
-                        switch (state[0]) {
-                            case 'Logged In': class_name = 'btn-default';
-                                break;
-                            case 'Logged Out': class_name = 'btn-light';
-                                break;
+                    if (user.is_active) {
+                        let class_name = '';
+                        if (user.last_login) {
+                            // User has logged in before
+                            class_name = 'btn-default';
+                        } else {
+                            // User hasn't logged in yet
+                            class_name = 'btn-light';
                         }
                     }
 
@@ -1589,17 +1797,27 @@ if (auth == undefined) {
 
                 counter++;
 
-                let category = allCategories.filter(function (category) {
-                    return category._id == product.category;
-                });
-
+                // Category info - use included category data or fallback to lookup
+                let categoryName = '';
+                if (product.category && product.category.name) {
+                    // Use included category data from API
+                    categoryName = product.category.name;
+                } else if (product.category_id) {
+                    // Fallback: lookup category by ID
+                    let category = allCategories.filter(function (category) {
+                        return category._id == product.category_id;
+                    });
+                    categoryName = category.length > 0 ? category[0].name : '';
+                }
+                
 
                 // Get raw materials info
                 let rawMaterialsInfo = '';
-                if (product.raw_materials && product.raw_materials.length > 0) {
-                    rawMaterialsInfo = product.raw_materials.map(rm => {
-                        const material = allRawMaterials.find(m => m._id == rm.material_id);
-                        return material ? `${material.name} (${rm.quantity})` : `Material ${rm.material_id} (${rm.quantity})`;
+                if (product.rawMaterials && product.rawMaterials.length > 0) {
+                    rawMaterialsInfo = product.rawMaterials.map(rm => {
+                        const material = allRawMaterials.find(m => m._id == (rm._id || rm.id));
+                        const quantity = rm.ProductRawMaterial?.quantity_required || rm.quantity_required || rm.quantity || '?';
+                        return material ? `${material.name} (${quantity})` : `Material ${rm._id || rm.id} (${quantity})`;
                     }).join(', ');
                 } else {
                     rawMaterialsInfo = 'None';
@@ -1607,11 +1825,11 @@ if (auth == undefined) {
 
                 product_list += `<tr>
             <td><img id="`+ product._id + `"></td>
-            <td><img style="max-height: 50px; max-width: 50px; border: 1px solid #ddd;" src="${product.img == "" ? "./assets/images/default.jpg" : img_path + product.img}" id="product_img"></td>
+            <td><img style="max-height: 50px; max-width: 50px; border: 1px solid #ddd;" src="${!product.image || product.image == "" ? "./assets/images/default.jpg" : img_path + "product_image/" + product.image}" id="product_img"></td>
             <td>${product.name}</td>
-            <td>${settings.symbol}${product.price}</td>
-            <td>${product.stock == 1 ? product.quantity : 'N/A'}</td>
-            <td>${category.length > 0 ? category[0].name : ''}</td>
+            <td>${settings && settings.symbol ? settings.symbol : '$'}${product.price}</td>
+            <td>${product.quantity || 'N/A'}</td>
+            <td>${categoryName}</td>
             <td style="max-width: 200px; word-wrap: break-word;">${rawMaterialsInfo}</td>
             <td class="nobr"><span class="btn-group"><button onClick="$(this).editProduct(${index})" class="btn btn-warning btn-sm"><i class="fa fa-edit"></i></button><button onClick="$(this).deleteProduct(${product._id})" class="btn btn-danger btn-sm"><i class="fa fa-trash"></i></button></span></td></tr>`;
 
@@ -1704,11 +1922,18 @@ if (auth == undefined) {
             }).then((result) => {
 
                 if (result.value) {
-                    $.get(api + 'users/logout/' + user._id, function (data) {
+                    if (user && (user._id || user.id)) {
+                        $.get(api + 'users/logout/' + (user._id || user.id), function (data) {
+                            storage.delete('auth');
+                            storage.delete('user');
+                            ipcRenderer.send('app-reload', '');
+                        });
+                    } else {
+                        // If user._id is undefined, just clear storage and reload
                         storage.delete('auth');
                         storage.delete('user');
                         ipcRenderer.send('app-reload', '');
-                    });
+                    }
                 }
             });
         });
@@ -1945,9 +2170,9 @@ if (auth == undefined) {
                 if (settings.charge_tax == 'on') {
                     $('#charge_tax').prop("checked", true);
                 }
-                if (settings.img != "") {
+                if (settings.img && settings.img != "") {
                     $('#logoname').hide();
-                    $('#current_logo').html(`<img src="${img_path + settings.img}" alt="">`);
+                    $('#current_logo').html(`<img src="${img_path + "settings/" + settings.img}" alt="">`);
                     $('#rmv_logo').show();
                 }
 
@@ -2076,7 +2301,7 @@ function loadTransactions() {
                                 <td class="nobr">${moment(trans.date).format('YYYY MMM DD hh:mm:ss')}</td>
                                 <td>${settings.symbol + trans.total}</td>
                                 <td>${trans.paid == "" ? "" : settings.symbol + trans.paid}</td>
-                                <td>${trans.change ? settings.symbol + Math.abs(trans.change).toFixed(2) : ''}</td>
+                                <td>${trans.change ? settings.symbol + Math.abs(trans.change).toFixed(2) : '00'}</td>
                                 <td>${trans.paid == "" ? "" : trans.payment_type == 0 ? "Cash" : 'Card'}</td>
                                 <td>${trans.till}</td>
                                 <td>${trans.user ?? 'Unknown User'}</td>
@@ -2187,8 +2412,8 @@ function loadSoldProducts() {
         sold_list += `<tr>
             <td>${item.product}</td>
             <td>${item.qty}</td>
-            <td>${product[0].stock == 1 ? product.length > 0 ? product[0].quantity : '' : 'N/A'}</td>
-            <td>${settings.symbol + (item.qty * parseFloat(item.price)).toFixed(2)}</td>
+            <td>${product.length > 0 ? product[0].quantity || 'N/A' : 'N/A'}</td>
+            <td>${settings && settings.symbol ? settings.symbol : '$'}${(item.qty * parseFloat(item.price)).toFixed(2)}</td>
             </tr>`;
 
         if (counter == sold.length) {
@@ -2300,7 +2525,7 @@ $.fn.viewTransaction = function (index) {
 
     receipt = `<div style="font-size: 10px;">                            
         <p style="text-align: center;">
-        ${settings.img == "" ? settings.img : '<img style="max-width: 50px;max-width: 100px;" src ="' + img_path + settings.img + '" /><br>'}
+        ${!settings.img || settings.img == "" ? "" : '<img style="max-width: 50px;max-width: 100px;" src ="' + img_path + "settings/" + settings.img + '" /><br>'}
             <span style="font-size: 22px;">${settings.store}</span> <br>
             ${settings.address_one} <br>
             ${settings.address_two} <br>
@@ -2481,10 +2706,10 @@ $('body').on("submit", "#account", function (e) {
             success: function (data) {
                 console.log('Login response:', data);
                 
-                if (data && data._id) {
+                if (data && data.user._id) {
                     console.log('Login successful, storing user data');
                     storage.set('auth', { auth: true });
-                    storage.set('user', data);
+                    storage.set('user', data.user); // Store only the user object, not the entire response
                     ipcRenderer.send('app-reload', '');
                 }
                 else {
@@ -2532,7 +2757,7 @@ let allRawMaterials = [];
 // Load raw materials
 function loadRawMaterials() {
     console.log('🔄 Loading raw materials from API...');
-    $.get(api + 'raw-materials/raw-materials', function (data) {
+    apiGet('raw-materials/raw-materials', function (data) {
         console.log('✅ Raw materials loaded:', data.length, 'materials');
         allRawMaterials = [...data];
         loadRawMaterialList();
@@ -2555,8 +2780,8 @@ function loadRawMaterialList() {
             <td>${material.name}</td>
             <td>${material.description || ''}</td>
             <td>${material.unit || ''}</td>
-            <td>${settings.symbol}${material.unit_price || '0.00'}</td>
-            <td>${material.stock == 1 ? material.quantity : 'N/A'}</td>
+            <td>${settings && settings.symbol ? settings.symbol : '$'}${material.cost_per_unit || '0.00'}</td>
+            <td>${material.quantity_in_stock || '0'}</td>
             <td>${material.supplier || ''}</td>
             <td class="nobr"><span class="btn-group"><button onClick="$(this).editRawMaterial(${index})" class="btn btn-warning btn-sm"><i class="fa fa-edit"></i></button><button onClick="$(this).deleteRawMaterial(${material._id})" class="btn btn-danger btn-sm"><i class="fa fa-trash"></i></button></span></td>
         </tr>`;
@@ -2576,21 +2801,28 @@ $.fn.editRawMaterial = function (index) {
     $('#RawMaterials').modal('hide');
 
     $('#rawMaterialName').val(allRawMaterials[index].name);
+    $('#rawMaterialSku').val(allRawMaterials[index].sku || '');
     $('#rawMaterialDescription').val(allRawMaterials[index].description || '');
     $('#rawMaterialUnit').val(allRawMaterials[index].unit || '');
-    $('#raw_material_price').val(allRawMaterials[index].unit_price);
-    $('#raw_material_quantity').val(allRawMaterials[index].quantity);
+    $('#raw_material_price').val(allRawMaterials[index].cost_per_unit);
+    $('#raw_material_quantity').val(allRawMaterials[index].quantity_in_stock);
+    $('#raw_material_min_quantity').val(allRawMaterials[index].min_quantity);
     $('#rawMaterialSupplier').val(allRawMaterials[index].supplier || '');
     $('#raw_material_id').val(allRawMaterials[index]._id);
-    $('#raw_material_img').val(allRawMaterials[index].img);
+    // Note: Raw material model doesn't have image field
+    $('#raw_material_img').val('');
 
-    if (allRawMaterials[index].stock == 0) {
+    // Check if material is inactive (stock disabled)
+    if (allRawMaterials[index].is_active === false) {
         $('#raw_material_stock').prop('checked', true);
+    } else {
+        $('#raw_material_stock').prop('checked', false);
     }
 
-    if (allRawMaterials[index].img != "") {
-        $('#current_raw_material_img').html(`<img style="max-height: 50px; max-width: 50px; border: 1px solid #ddd;" src="${img_path + allRawMaterials[index].img}">`);
-    }
+    // Note: RawMaterial model doesn't have image field, removing image display
+    // if (allRawMaterials[index].img != "") {
+    //     $('#current_raw_material_img').html(`<img style="max-height: 50px; max-width: 50px; border: 1px solid #ddd;" src="${img_path + allRawMaterials[index].img}">`);
+    // }
 
     $('#newRawMaterial').modal('show');
 }
@@ -2717,7 +2949,7 @@ function populateRawMaterialsDropdown() {
     $('.raw-material-select').each(function() {
         if ($(this).find('option').length <= 1) { // Only has the default option
             allRawMaterials.forEach(material => {
-                $(this).append(`<option value="${material._id}">${material.name} (${material.unit || 'unit'}) - Stock: ${material.quantity || 0}</option>`);
+                $(this).append(`<option value="${material._id}">${material.name} (${material.unit || 'unit'}) - Stock: ${material.quantity_in_stock || 0}</option>`);
             });
         }
     });
@@ -2779,26 +3011,696 @@ function loadProductRawMaterials(rawMaterials) {
     resetRawMaterialsForm();
     
     if (rawMaterials && rawMaterials.length > 0) {
-        // Remove the first empty row
-        $('.raw-material-item').first().remove();
-        
+        // First, create the required number of rows
         rawMaterials.forEach((rm, index) => {
-            if (index === 0) {
-                // Use the existing row
-                const firstRow = $('.raw-material-item').first();
-                firstRow.find('.raw-material-select').val(rm.material_id);
-                firstRow.find('.raw-material-quantity').val(rm.quantity);
-            } else {
-                // Add new rows
+            if (index > 0) {
+                // Add new rows for additional materials (first row already exists from resetRawMaterialsForm)
                 addRawMaterialRow();
-                const newRow = $('.raw-material-item').last();
-                newRow.find('.raw-material-select').val(rm.material_id);
-                newRow.find('.raw-material-quantity').val(rm.quantity);
             }
         });
         
-        updateRemoveButtons();
+        // Then populate dropdowns and set values
+        setTimeout(() => {
+            populateRawMaterialsDropdown();
+            
+            // Set values after dropdowns are populated
+            rawMaterials.forEach((rm, index) => {
+                const row = $('.raw-material-item').eq(index);
+                if (row.length > 0) {
+                    row.find('.raw-material-select').val(rm._id || rm.id);
+                    row.find('.raw-material-quantity').val(rm.ProductRawMaterial?.quantity_required || rm.quantity_required || '');
+                }
+            });
+            
+            updateRemoveButtons();
+        }, 200);
     }
 }
 
+// Load and display transactions
+window.loadTransactions = function() {
+    console.log('Loading transactions...');
+    
+    // Get filter values
+    const selectedUser = $('#users').val();
+    const selectedStatus = $('#status').val();
+    let startDate = null;
+    let endDate = null;
+    
+    // Get date range if daterangepicker is available
+    if (typeof $.fn.daterangepicker === 'function' && $('#reportrange').data('daterangepicker')) {
+        const dateRange = $('#reportrange').data('daterangepicker');
+        startDate = dateRange.startDate.format('YYYY-MM-DD');
+        endDate = dateRange.endDate.format('YYYY-MM-DD');
+    }
+    
+    // Build query parameters
+    let queryParams = [];
+    if (selectedUser) queryParams.push(`user=${selectedUser}`);
+    if (selectedStatus) queryParams.push(`status=${selectedStatus}`);
+    if (startDate && endDate) {
+        queryParams.push(`start=${startDate}`);
+        queryParams.push(`end=${endDate}`);
+    }
+    
+    const queryString = queryParams.length > 0 ? '?' + queryParams.join('&') : '';
+    console.log('Filter query:', queryString);
+    console.log('Filter values:', { selectedUser, selectedStatus, startDate, endDate });
+    
+    $.ajax({
+        url: api + 'transactions/transactions' + queryString,
+        type: 'GET',
+        success: function(transactions) {
+            console.log('Transactions loaded:', transactions.length);
+            
+            const tbody = $('#transaction_list');
+            tbody.empty();
+            
+            if (transactions && transactions.length > 0) {
+                transactions.forEach(function(transaction) {
+                    // Convert payment method to display format
+                    const paymentDisplay = transaction.payment_method === 'cash' ? 'Cash' : 
+                                         transaction.payment_method === 'card' ? 'Card' : 
+                                         (transaction.payment_method || 'Cash');
+                    
+                    // For completed transactions, assume paid in full
+                    const totalAmount = parseFloat(transaction.total);
+                    const paidAmount = transaction.status === 'completed' ? totalAmount : 0;
+                    const changeAmount = transaction.status === 'completed' ? 0 : 0;
+                    
+                    const row = `
+                        <tr>
+                            <td>${transaction.transaction_number || 'N/A'}</td>
+                            <td class="nobr">${new Date(transaction.created_at).toLocaleDateString()}</td>
+                            <td>${settings.symbol}${totalAmount.toFixed(2)}</td>
+                            <td>${transaction.status === 'completed' ? settings.symbol + paidAmount.toFixed(2) : ''}</td>
+                            <td>${settings.symbol}${changeAmount.toFixed(2)}</td>
+                            <td>${paymentDisplay}</td>
+                            <td>1</td>
+                            <td>${transaction.user ? transaction.user.full_name || transaction.user.username : 'Unknown User'}</td>
+                            <td>
+                                <button class="btn btn-sm btn-info" onclick="viewTransaction(${transaction.id})">
+                                    <i class="fa fa-search-plus"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    tbody.append(row);
+                });
+                
+                // Update transaction counter
+                $('#total_transactions div').text(transactions.length);
+            } else {
+                tbody.append('<tr><td colspan="9" class="text-center">No transactions found</td></tr>');
+                $('#total_transactions div').text('0');
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Error loading transactions:', error);
+            const tbody = $('#transaction_list');
+            tbody.empty();
+            tbody.append('<tr><td colspan="9" class="text-center text-danger">Error loading transactions</td></tr>');
+        }
+    });
+}
+
+// View transaction details
+window.viewTransaction = function(transactionId) {
+    console.log('Viewing transaction:', transactionId);
+    
+    $.ajax({
+        url: api + 'transactions/transaction/' + transactionId,
+        type: 'GET',
+        success: function(transaction) {
+            console.log('Transaction details:', transaction);
+            
+            let itemsHtml = '';
+            if (transaction.items && transaction.items.length > 0) {
+                transaction.items.forEach(function(item) {
+                    itemsHtml += `
+                        <tr>
+                            <td>${item.product ? item.product.name : 'Unknown Product'}</td>
+                            <td>${item.quantity}</td>
+                            <td>${settings.symbol}${parseFloat(item.unit_price).toFixed(2)}</td>
+                            <td>${settings.symbol}${parseFloat(item.total_price).toFixed(2)}</td>
+                        </tr>
+                    `;
+                });
+            }
+            
+            const transactionHtml = `
+                <div class="transaction-details">
+                    <h4>Transaction #${transaction.transaction_number}</h4>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Date:</strong> ${new Date(transaction.created_at).toLocaleString()}</p>
+                            <p><strong>Cashier:</strong> ${transaction.user ? transaction.user.full_name || transaction.user.username : 'N/A'}</p>
+                            <p><strong>Customer:</strong> ${transaction.customer ? transaction.customer.name : 'Walk-in'}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Payment Method:</strong> ${transaction.payment_method || 'cash'}</p>
+                            <p><strong>Status:</strong> ${transaction.status}</p>
+                            ${transaction.notes ? `<p><strong>Notes:</strong> ${transaction.notes}</p>` : ''}
+                        </div>
+                    </div>
+                    
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Qty</th>
+                                <th>Price</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${itemsHtml}
+                        </tbody>
+                    </table>
+                    
+                    <div class="row">
+                        <div class="col-md-6 col-md-offset-6">
+                            <table class="table">
+                                <tr>
+                                    <td><strong>Subtotal:</strong></td>
+                                    <td>${settings.symbol}${parseFloat(transaction.subtotal).toFixed(2)}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Tax:</strong></td>
+                                    <td><strong>${settings.symbol}${parseFloat(transaction.tax).toFixed(2)}</strong></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Total:</strong></td>
+                                    <td><strong>${settings.symbol}${parseFloat(transaction.total).toFixed(2)}</strong></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            $('#viewTransaction').html(transactionHtml);
+            $('#orderModal').modal('show');
+        },
+        error: function(xhr, status, error) {
+            console.error('Error loading transaction details:', error);
+            alert('Error loading transaction details');
+        }
+    });
+}
+
+// Load user list for transactions filter
+window.loadUserList = function() {
+    console.log('Loading user list for transaction filters...');
+    
+    $.ajax({
+        url: api + 'users/',
+        type: 'GET',
+        success: function(users) {
+            console.log('Users loaded:', users.length);
+            
+            const userSelect = $('#users');
+            userSelect.empty();
+            userSelect.append('<option value="">All Cashiers</option>');
+            
+            if (users && users.length > 0) {
+                users.forEach(function(user) {
+                    userSelect.append(`<option value="${user.id}">${user.full_name || user.username}</option>`);
+                });
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Error loading users:', error);
+        }
+    });
+}
+
+// Load transaction statistics and product sales
+window.loadTransactionStats = function() {
+    console.log('Loading transaction statistics...');
+    
+    // Get filter values (same as loadTransactions)
+    const selectedUser = $('#users').val();
+    const selectedStatus = $('#status').val();
+    let startDate = null;
+    let endDate = null;
+    
+    // Get date range if daterangepicker is available
+    if (typeof $.fn.daterangepicker === 'function' && $('#reportrange').data('daterangepicker')) {
+        const dateRange = $('#reportrange').data('daterangepicker');
+        startDate = dateRange.startDate.format('YYYY-MM-DD');
+        endDate = dateRange.endDate.format('YYYY-MM-DD');
+    }
+    
+    // Build query parameters for stats
+    let queryParams = [];
+    if (startDate && endDate) {
+        queryParams.push(`start_date=${startDate}`);
+        queryParams.push(`end_date=${endDate}`);
+    }
+    // Note: Stats endpoint currently only supports date filtering
+    
+    const queryString = queryParams.length > 0 ? '?' + queryParams.join('&') : '';
+    console.log('Stats filter query:', queryString);
+    
+    $.ajax({
+        url: api + 'transactions/stats' + queryString,
+        type: 'GET',
+        success: function(stats) {
+            console.log('Transaction stats loaded:', stats);
+            
+            // Update totals
+            $('#total_sales div').text(settings.symbol + parseFloat(stats.total_revenue || 0).toFixed(2));
+            $('#total_transactions div').text(stats.total_transactions || 0);
+            
+            // Calculate total items sold
+            let totalItems = 0;
+            if (stats.top_products) {
+                stats.top_products.forEach(function(product) {
+                    totalItems += parseInt(product.total_quantity || 0);
+                });
+            }
+            $('#total_items div').text(totalItems);
+            $('#total_products div').text(stats.top_products ? stats.top_products.length : 0);
+            
+            // Populate products table
+            const tbody = $('#product_sales');
+            tbody.empty();
+            
+            if (stats.top_products && stats.top_products.length > 0) {
+                stats.top_products.forEach(function(product) {
+                    const row = `
+                        <tr>
+                            <td>${product.product ? product.product.name : 'Unknown Product'}</td>
+                            <td>${product.total_quantity || 0}</td>
+                            <td>-</td>
+                            <td>${settings.symbol}${parseFloat(product.total_revenue || 0).toFixed(2)}</td>
+                        </tr>
+                    `;
+                    tbody.append(row);
+                });
+            } else {
+                tbody.append('<tr><td colspan="4" class="text-center">No product sales data</td></tr>');
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Error loading transaction stats:', error);
+            // Set default values on error
+            $('#total_sales div').text(settings.symbol + '0.00');
+            $('#total_transactions div').text('0');
+            $('#total_items div').text('0');
+            $('#total_products div').text('0');
+            $('#product_sales').html('<tr><td colspan="4" class="text-center text-danger">Error loading statistics</td></tr>');
+        }
+    });
+}
+
+// Initialize transaction filters
+window.initTransactionFilters = function() {
+    console.log('Initializing transaction filters...');
+    
+    // Initialize date range picker if it exists
+    if (typeof $.fn.daterangepicker === 'function') {
+        $('#reportrange').daterangepicker({
+            startDate: moment().subtract(29, 'days'),
+            endDate: moment(),
+            ranges: {
+               'Today': [moment(), moment()],
+               'Yesterday': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
+               'Last 7 Days': [moment().subtract(6, 'days'), moment()],
+               'Last 30 Days': [moment().subtract(29, 'days'), moment()],
+               'This Month': [moment().startOf('month'), moment().endOf('month')],
+               'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
+            },
+            locale: {
+                format: 'MM/DD/YYYY'
+            }
+        }, function(start, end, label) {
+            console.log('Date range selected:', label, start.format('YYYY-MM-DD'), 'to', end.format('YYYY-MM-DD'));
+            // Update the display text
+            $('#reportrange span').html(start.format('MMMM D, YYYY') + ' - ' + end.format('MMMM D, YYYY'));
+            // Reload data when date range changes
+            window.loadTransactions();
+            window.loadTransactionStats();
+        });
+        
+        // Set initial display text
+        $('#reportrange span').html(moment().subtract(29, 'days').format('MMMM D, YYYY') + ' - ' + moment().format('MMMM D, YYYY'));
+    } else {
+        console.warn('daterangepicker not available');
+    }
+    
+    // Add change handlers for other filters
+    $('#users, #status').on('change', function() {
+        console.log('Filter changed:', $(this).attr('id'), $(this).val());
+        // Reload data when filters change
+        window.loadTransactions();
+        window.loadTransactionStats();
+    });
+}
+
+// User Management Functions
+
+// Load all users
+window.loadAllUsers = function() {
+    console.log('Loading all users...');
+    
+    $.ajax({
+        url: api + 'users/',
+        type: 'GET',
+        success: function(users) {
+            console.log('Users loaded:', users.length);
+            
+            const tbody = $('#user_list');
+            tbody.empty();
+            
+            if (users && users.length > 0) {
+                users.forEach(function(user) {
+                    const statusBadge = user.is_active ? 
+                        '<span class="badge badge-success">Active</span>' : 
+                        '<span class="badge badge-danger">Inactive</span>';
+                    
+                    const row = `
+                        <tr>
+                            <td>${user.full_name || 'N/A'}</td>
+                            <td>${user.username}</td>
+                            <td>${statusBadge}</td>
+                            <td>
+                                <button class="btn btn-sm btn-info" onclick="editUser(${user.id})">
+                                    <i class="fa fa-edit"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})">
+                                    <i class="fa fa-trash"></i> Delete
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    tbody.append(row);
+                });
+            } else {
+                tbody.append('<tr><td colspan="4" class="text-center">No users found</td></tr>');
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Error loading users:', error);
+            const tbody = $('#user_list');
+            tbody.empty();
+            tbody.append('<tr><td colspan="4" class="text-center text-danger">Error loading users</td></tr>');
+        }
+    });
+}
+
+// Create new user
+window.createUser = function(userData) {
+    console.log('Creating new user:', userData);
+    
+    $.ajax({
+        url: api + 'users/',
+        type: 'POST',
+        data: JSON.stringify(userData),
+        contentType: 'application/json',
+        success: function(response) {
+            console.log('User created successfully:', response);
+            alert('User created successfully!');
+            $('#newUserForm')[0].reset();
+            $('#newUser').modal('hide');
+            loadAllUsers(); // Refresh the user list
+        },
+        error: function(xhr, status, error) {
+            console.error('Error creating user:', error);
+            let errorMessage = 'Failed to create user';
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMessage = xhr.responseJSON.error;
+            }
+            alert('Error: ' + errorMessage);
+        }
+    });
+}
+
+// Edit user - fetch user data and populate edit form
+window.editUser = function(userId) {
+    console.log('Edit user:', userId);
+    
+    // Fetch user data by ID
+    $.ajax({
+        url: api + 'users/' + userId,
+        type: 'GET',
+        success: function(user) {
+            console.log('User data loaded for editing:', user);
+            
+            // Note: Field population moved to modal shown event
+            
+            // Show permissions section
+            $('.perms').show();
+            
+            // Close any open modals and open the edit modal
+            $('#userManagement').modal('hide');
+            $('#Users').modal('hide');
+            
+            // Open the modal and populate fields after it's shown
+            $('#userModal').modal('show');
+            
+            // Use setTimeout to ensure modal is fully rendered before populating fields
+            setTimeout(function() {
+                console.log('Populating user edit fields after modal is shown...');
+                
+                // Populate fields after modal is shown
+                $('#user_id').val(user.id);
+                $('#edit_fullname').val(user.full_name || user.fullname || '');
+                $('#edit_username').val(user.username || '');
+                $('#edit_password').val('');
+                $('#user_email').val(user.email || '');
+                $('#user_role').val(user.role || '');
+                
+                // Set permissions based on role
+                if (user.role === 'admin') {
+                    $('#perm_products').prop('checked', true);
+                    $('#perm_categories').prop('checked', true);
+                    $('#perm_raw_materials').prop('checked', true);
+                    $('#perm_transactions').prop('checked', true);
+                    $('#perm_users').prop('checked', true);
+                    $('#perm_settings').prop('checked', true);
+                } else {
+                    // Default permissions for non-admin users
+                    $('#perm_products').prop('checked', true);
+                    $('#perm_categories').prop('checked', true);
+                    $('#perm_raw_materials').prop('checked', false);
+                    $('#perm_transactions').prop('checked', true);
+                    $('#perm_users').prop('checked', false);
+                    $('#perm_settings').prop('checked', false);
+                }
+                
+                console.log('User edit fields populated successfully');
+            }, 500); // Wait 500ms for modal to be fully rendered
+        },
+        error: function(xhr, status, error) {
+            console.error('Error loading user for editing:', error);
+            alert('Error loading user data for editing');
+        }
+    });
+}
+
+// Delete user (placeholder for future implementation)
+window.deleteUser = function(userId) {
+    console.log('Delete user:', userId);
+    if (confirm('Are you sure you want to delete this user?')) {
+        alert('Delete user functionality will be implemented in the next update');
+    }
+}
+
+// Load current user account info
+window.loadAccountInfo = function() {
+    console.log('Loading account info...');
+    
+    // Get current user from storage or global variable
+    const currentUser = user || storage.get('user');
+    
+    if (currentUser) {
+        $('#currentUsername').text(currentUser.username || 'N/A');
+        $('#currentFullName').text(currentUser.full_name || currentUser.fullname || 'N/A');
+        $('#currentEmail').text(currentUser.email || 'N/A');
+        $('#currentRole').text(currentUser.role || 'N/A');
+        $('#currentLastLogin').text(currentUser.last_login ? new Date(currentUser.last_login).toLocaleString() : 'Never');
+    } else {
+        $('#currentUsername').text('Not logged in');
+        $('#currentFullName').text('Not logged in');
+        $('#currentEmail').text('Not logged in');
+        $('#currentRole').text('Not logged in');
+        $('#currentLastLogin').text('Not logged in');
+    }
+}
+
+// Change password function
+window.changePassword = function(passwordData) {
+    console.log('Changing password...');
+    
+    // Get current user ID
+    const currentUser = user || storage.get('user');
+    if (!currentUser || !currentUser._id) {
+        alert('Error: User not logged in');
+        return;
+    }
+    
+    // Add user_id to password data
+    const dataWithUserId = {
+        ...passwordData,
+        user_id: currentUser._id
+    };
+    
+    $.ajax({
+        url: api + 'users/change-password',
+        type: 'POST',
+        data: JSON.stringify(dataWithUserId),
+        contentType: 'application/json',
+        success: function(response) {
+            console.log('Password changed successfully:', response);
+            alert('Password changed successfully!');
+            $('#changePasswordForm')[0].reset();
+        },
+        error: function(xhr, status, error) {
+            console.error('Error changing password:', error);
+            let errorMessage = 'Failed to change password';
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMessage = xhr.responseJSON.error;
+            }
+            alert('Error: ' + errorMessage);
+        }
+    });
+}
+
+// Handle new user form submission
+$(document).ready(function() {
+    $('#newUserForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const userData = {
+            full_name: formData.get('full_name'),
+            username: formData.get('username'),
+            email: formData.get('email'),
+            password: formData.get('password'),
+            role: formData.get('role'),
+            is_active: formData.get('is_active') === 'on'
+        };
+        
+        // Validate password confirmation
+        const password = formData.get('password');
+        const confirmPassword = formData.get('confirm_password');
+        
+        if (password !== confirmPassword) {
+            alert('Passwords do not match!');
+            return;
+        }
+        
+        // Validate required fields
+        if (!userData.full_name || !userData.username || !userData.password || !userData.role) {
+            alert('Please fill in all required fields!');
+            return;
+        }
+        
+        createUser(userData);
+    });
+    
+    // Handle change password form submission
+    $('#changePasswordForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const passwordData = {
+            current_password: formData.get('current_password'),
+            new_password: formData.get('new_password'),
+            confirm_password: formData.get('confirm_new_password')
+        };
+        
+        // Validate password confirmation
+        if (passwordData.new_password !== passwordData.confirm_password) {
+            alert('New passwords do not match!');
+            return;
+        }
+        
+        // Validate required fields
+        if (!passwordData.current_password || !passwordData.new_password) {
+            alert('Please fill in all required fields!');
+            return;
+        }
+        
+        changePassword(passwordData);
+    });
+    
+    // Load users when Users modal is opened
+    $('#usersModal').on('click', function() {
+        loadAllUsers();
+    });
+    
+    // Load account info when User Management modal is opened
+    $('#add-user').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        loadAccountInfo();
+    });
+    
+    // Handle user edit form submission
+    $('#saveUser').on('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const userData = {
+            id: formData.get('id'),
+            fullname: formData.get('fullname'),
+            username: formData.get('username'),
+            password: formData.get('password'),
+            email: formData.get('email'),
+            role: formData.get('role'),
+            perm_products: formData.get('perm_products') === 'on' ? 1 : 0,
+            perm_categories: formData.get('perm_categories') === 'on' ? 1 : 0,
+            perm_raw_materials: formData.get('perm_raw_materials') === 'on' ? 1 : 0,
+            perm_transactions: formData.get('perm_transactions') === 'on' ? 1 : 0,
+            perm_users: formData.get('perm_users') === 'on' ? 1 : 0,
+            perm_settings: formData.get('perm_settings') === 'on' ? 1 : 0
+        };
+        
+        // Validate password confirmation if password is provided
+        const password = formData.get('password');
+        const confirmPassword = formData.get('pass');
+        
+        if (password && password !== confirmPassword) {
+            alert('Passwords do not match!');
+            return;
+        }
+        
+        // Don't send empty password
+        if (!password) {
+            delete userData.password;
+        }
+        
+        // Validate required fields
+        if (!userData.fullname || !userData.username || !userData.role) {
+            alert('Please fill in all required fields!');
+            return;
+        }
+        
+        // Update user
+        $.ajax({
+            url: api + 'users/',
+            type: 'POST',
+            data: JSON.stringify(userData),
+            contentType: 'application/json',
+            success: function(response) {
+                console.log('User updated successfully:', response);
+                alert('User updated successfully!');
+                $('#saveUser')[0].reset();
+                $('#userModal').modal('hide');
+                loadAllUsers(); // Refresh the user list
+            },
+            error: function(xhr, status, error) {
+                console.error('Error updating user:', error);
+                let errorMessage = 'Failed to update user';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMessage = xhr.responseJSON.error;
+                }
+                alert('Error: ' + errorMessage);
+            }
+        });
+    });
+});
 

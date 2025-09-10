@@ -85,7 +85,7 @@
                                 <button id="usersModal" data-toggle="modal" data-target="#Users" type="button" class="btn btn-default waves-effect waves-light">
                                         <span class="btn-label"><i class=" 	glyphicon glyphicon-user"></i> </span>  Users  
                                 </button>
-                                <button id="add-user" data-toggle="modal"   type="button" class="btn btn-dark waves-effect waves-light">
+                                <button id="add-user" data-toggle="modal" data-target="#userManagement" type="button" class="btn btn-dark waves-effect waves-light" onclick="event.stopPropagation();">
                                         <i class="fa fa-plus"></i> 
                                 </button>
                              </div>
@@ -129,6 +129,7 @@
                         <div class="col-md-1">
                             <span>Status</span>
                             <select id="status" class="form-control status">
+                                <option value="">All Status</option>
                                 <option value="1">Paid</option>
                                 <option value="0">Unpaid</option>
                             </select>
@@ -557,7 +558,7 @@
                         <input type="hidden" name="remove" id="remove_img">
                         <div class="form-group">
                             <label for="userName">Category</label>
-                            <select name="category" class="form-control" id="category"></select>
+                            <select name="category_id" class="form-control" id="category"></select>
                         </div>
                         <div class="form-group">
                             <label for="userName">Product Name</label>
@@ -585,7 +586,7 @@
                                             </select>
                                         </div>
                                         <div class="col-md-4">
-                                            <input type="number" class="form-control raw-material-quantity" name="raw_material_quantities[]" placeholder="Quantity" min="0" step="0.01">
+                                            <input type="number" class="form-control raw-material-quantity" name="raw_material_quantities[]" placeholder="Quantity" min="0" step="1">
                                         </div>
                                         <div class="col-md-2">
                                             <button type="button" class="btn btn-danger btn-sm remove-raw-material" style="display: none;">
@@ -628,6 +629,13 @@
                                 <label for="userName">Name</label>
                                 <input id="category_id" type="hidden" name="id">
                                 <input id="categoryName" type="text" required="required"  name="name" placeholder="Enter a category name" class="form-control" >
+                            </div>
+                            <div class="form-group">
+                                <label for="userName">Description</label>
+                                <textarea id="categoryDescription" name="description" placeholder="Enter category description" class="form-control"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label><input type="checkbox" name="is_active" id="category_is_active" style="max-width: 30px; float: left;"> Active </label>
                             </div>
                           
                             <input type="submit" id="submitCategory" class="btn btn-primary btn-block waves-effect waves-light">
@@ -701,8 +709,130 @@
       </div>
  </div>
 
+     <!-- User Management Modal -->
+     <div id="userManagement" class="modal fade bs-example-modal-sm" tabindex="-1" role="dialog" aria-labelledby="userManagementLabel" aria-hidden="true" style="display: none;">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>
+                    <h4 class="modal-title" id="userManagementLabel">User Management</h4>
+                </div>
+                <div class="modal-body">
+                    <!-- Tab Navigation -->
+                    <ul class="nav nav-tabs" role="tablist">
+                        <li role="presentation" class="active">
+                            <a href="#accountInfo" aria-controls="accountInfo" role="tab" data-toggle="tab">Account Info</a>
+                        </li>
+                        <li role="presentation">
+                            <a href="#addNewUser" aria-controls="addNewUser" role="tab" data-toggle="tab">Add New User</a>
+                        </li>
+                    </ul>
 
+                    <!-- Tab Content -->
+                    <div class="tab-content" style="margin-top: 20px;">
+                        <!-- Account Info Tab -->
+                        <div role="tabpanel" class="tab-pane active" id="accountInfo">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h5>Current User Information</h5>
+                                    <div class="form-group">
+                                        <label>Username:</label>
+                                        <p class="form-control-static" id="currentUsername">Loading...</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Full Name:</label>
+                                        <p class="form-control-static" id="currentFullName">Loading...</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Email:</label>
+                                        <p class="form-control-static" id="currentEmail">Loading...</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Role:</label>
+                                        <p class="form-control-static" id="currentRole">Loading...</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Last Login:</label>
+                                        <p class="form-control-static" id="currentLastLogin">Loading...</p>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <h5>Change Password</h5>
+                                    <form id="changePasswordForm">
+                                        <div class="form-group">
+                                            <label for="currentPassword">Current Password*</label>
+                                            <input type="password" required name="current_password" class="form-control" id="currentPassword" placeholder="Enter current password">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="newPassword">New Password*</label>
+                                            <input type="password" required name="new_password" class="form-control" id="newPassword" placeholder="Enter new password">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="confirmNewPassword">Confirm New Password*</label>
+                                            <input type="password" required name="confirm_new_password" class="form-control" id="confirmNewPassword" placeholder="Confirm new password">
+                                        </div>
+                                        <div class="form-group">
+                                            <button type="submit" class="btn btn-warning">Change Password</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
 
+                        <!-- Add New User Tab -->
+                        <div role="tabpanel" class="tab-pane" id="addNewUser">
+                            <form id="newUserForm">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="fullName">Full Name*</label>
+                                            <input type="text" required name="full_name" class="form-control" id="fullName" placeholder="Enter full name">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="username">Username*</label>
+                                            <input type="text" required name="username" class="form-control" id="username" placeholder="Enter username">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="email">Email</label>
+                                            <input type="email" name="email" class="form-control" id="email" placeholder="Enter email">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="password">Password*</label>
+                                            <input type="password" required name="password" class="form-control" id="password" placeholder="Enter password">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="confirmPassword">Confirm Password*</label>
+                                            <input type="password" required name="confirm_password" class="form-control" id="confirmPassword" placeholder="Confirm password">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="role">Role*</label>
+                                            <select required name="role" class="form-control" id="role">
+                                                <option value="">Select Role</option>
+                                                <option value="admin">Admin</option>
+                                                <option value="cashier">Cashier</option>
+                                                <option value="manager">Manager</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>
+                                                <input type="checkbox" name="is_active" id="isActive" checked> Active User
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <button type="submit" class="btn btn-primary">Create User</button>
+                                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+     </div>
 
      <div id="Categories" class="modal fade bs-example-modal-sm" tabindex="-1" role="dialog" aria-labelledby="mySmallModalLabel" aria-hidden="true" style="display: none;">
             <div class="modal-dialog modal-md">
@@ -750,6 +880,10 @@
                             <input type="text" required="required"  name="name" parsley-trigger="change" placeholder="Enter material name" class="form-control" id="rawMaterialName">
                         </div>
                         <div class="form-group">
+                            <label for="userName">SKU</label>
+                            <input type="text" name="sku" placeholder="Stock Keeping Unit" class="form-control" id="rawMaterialSku">
+                        </div>
+                        <div class="form-group">
                             <label for="userName">Description</label>
                             <textarea name="description" placeholder="Enter description" class="form-control" id="rawMaterialDescription"></textarea>
                         </div>
@@ -764,6 +898,10 @@
                         <div class="form-group">
                             <label for="userName">Stock Quantity</label>
                             <input type="text" name="quantity" placeholder="Available stock" class="form-control" id="raw_material_quantity">
+                        </div>
+                        <div class="form-group">
+                            <label for="userName">Minimum Quantity</label>
+                            <input type="text" name="min_quantity" placeholder="Minimum stock level" class="form-control" id="raw_material_min_quantity">
                         </div>
                         <div class="form-group">
                             <label for="userName">Supplier</label>
@@ -835,19 +973,31 @@
                         <input type="hidden" name="id" id="user_id">
                         <div class="form-group">
                             <label for="userName">Name*</label>
-                            <input type="text" required="required"  name="fullname" parsley-trigger="change" placeholder="Enter name" class="form-control" id="fullname">
+                            <input type="text" required="required"  name="fullname" parsley-trigger="change" placeholder="Enter name" class="form-control" id="edit_fullname">
                         </div>
                         <div class="form-group">
                             <label for="userName">Username*</label>
-                            <input type="text" name="username" parsley-trigger="change" placeholder="Login Username" class="form-control" id="username">
+                            <input type="text" name="username" parsley-trigger="change" placeholder="Login Username" class="form-control" id="edit_username">
                         </div>
                         <div class="form-group">
                             <label for="userName">Password</label>
-                            <input type="password" name="password" parsley-trigger="change" placeholder="Password" class="form-control" id="password">
+                            <input type="password" name="password" parsley-trigger="change" placeholder="Password" class="form-control" id="edit_password">
                         </div>
                         <div class="form-group">
                             <label for="userName">Repeat Password</label>
                             <input type="password" name="pass" parsley-trigger="change" placeholder="Repeat" class="form-control" id="pass">
+                        </div>
+                        <div class="form-group">
+                            <label for="userName">Email</label>
+                            <input type="email" name="email" parsley-trigger="change" placeholder="Enter email address" class="form-control" id="user_email">
+                        </div>
+                        <div class="form-group">
+                            <label for="userName">Role</label>
+                            <select name="role" class="form-control" id="user_role">
+                                <option value="cashier">Cashier</option>
+                                <option value="manager">Manager</option>
+                                <option value="admin">Admin</option>
+                            </select>
                         </div>
 
                         <div class="perms">
